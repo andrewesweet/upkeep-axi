@@ -13,7 +13,7 @@ $ upkeep-axi
 bin: ~/.local/bin/upkeep-axi
 description: Report workstation update inventory across surfaces.
 generatedAt: "2026-09-13T11:02:36.440Z"
-schemaVersion: 1
+schemaVersion: 3
 tools[3]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:
   npm,typescript,true,5.6.3,5.7.2,minor,false,npm install -g typescript@latest,npm install -g typescript@5.6.3
   mise,node,true,20.11.0,22.0.0,major,true,mise upgrade node,mise use -g node@20.11.0

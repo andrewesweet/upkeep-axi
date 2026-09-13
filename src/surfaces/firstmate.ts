@@ -165,15 +165,7 @@ function rebaseDelegate(
     steps: [
       {
         file: git,
-        args: [
-          "-C",
-          clone,
-          "worktree",
-          "add",
-          "--detach",
-          scratch,
-          forkSha,
-        ],
+        args: ["-C", clone, "worktree", "add", "--detach", scratch, forkSha],
       },
       { file: git, args: ["-C", scratch, "rebase", upstreamSha] },
       {
@@ -188,14 +180,7 @@ function rebaseDelegate(
       },
       {
         file: git,
-        args: [
-          "-C",
-          clone,
-          "worktree",
-          "remove",
-          "--force",
-          scratch,
-        ],
+        args: ["-C", clone, "worktree", "remove", "--force", scratch],
       },
     ],
   };
@@ -226,15 +211,7 @@ async function trialRebase(
   try {
     const add = await ctx.exec(
       git,
-      [
-        "-C",
-        clone,
-        "worktree",
-        "add",
-        "--detach",
-        scratch,
-        forkSha,
-      ],
+      ["-C", clone, "worktree", "add", "--detach", scratch, forkSha],
       GIT_LOCAL_TIMEOUT_MS,
     );
     if (add.code !== 0 || add.timedOut) {
@@ -268,7 +245,12 @@ async function trialRebase(
       return { error: failDetail("git rebase (trial)", rebase) };
     }
     return {
-      sync: { class: "conflicts", forkAhead, upstreamAhead, files: conflicting },
+      sync: {
+        class: "conflicts",
+        forkAhead,
+        upstreamAhead,
+        files: conflicting,
+      },
     };
   } finally {
     // Discarded afterwards, whatever the outcome; the remove is best-effort
@@ -392,24 +374,12 @@ export const firstmateSurface: Surface = {
     const [aheadOfUpstream, behindUpstream] = await Promise.all([
       ctx.exec(
         git,
-        [
-          "-C",
-          clone,
-          "rev-list",
-          "--count",
-          `${upstreamSha}..${forkSha}`,
-        ],
+        ["-C", clone, "rev-list", "--count", `${upstreamSha}..${forkSha}`],
         GIT_LOCAL_TIMEOUT_MS,
       ),
       ctx.exec(
         git,
-        [
-          "-C",
-          clone,
-          "rev-list",
-          "--count",
-          `${forkSha}..${upstreamSha}`,
-        ],
+        ["-C", clone, "rev-list", "--count", `${forkSha}..${upstreamSha}`],
         GIT_LOCAL_TIMEOUT_MS,
       ),
     ]);
