@@ -219,6 +219,23 @@ exit 1`,
     );
   });
 
+  it("keeps the status report when the inventory cannot be saved", async () => {
+    const fake = stdEnv();
+    const blocked = join(fake.root, "state-is-a-file");
+    writeFileSync(blocked, "");
+    const result = await runCli(
+      ["status"],
+      fake.env({ XDG_STATE_HOME: blocked }),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("  npm,typescript,true,5.6.3,5.7.2,minor");
+    expect(result.stdout).toContain(
+      "Could not save the inventory for the ambient dashboard at ",
+    );
+    expect(result.stdout).toContain("ENOTDIR");
+  });
+
   it("does not read a surface-filtered status run as the inventory", async () => {
     const fake = stdEnv();
     const filtered = await runCli(["status", "--surface", "npm"], fake.env());

@@ -352,12 +352,20 @@ async function statusCommand(
   const records = narrowed ? readJournal(defaultJournalPath(env)) : [];
   const tools = await collectStatus(config, surfaces, env);
   const generatedAt = new Date().toISOString();
+  const extraHelp: string[] = [];
   if (surfaceFilter === undefined) {
-    writeSnapshot(defaultSnapshotPath(env), {
-      generatedAt,
-      schemaVersion: SCHEMA_VERSION,
-      tools,
-    });
+    const snapshotPath = defaultSnapshotPath(env);
+    try {
+      writeSnapshot(snapshotPath, {
+        generatedAt,
+        schemaVersion: SCHEMA_VERSION,
+        tools,
+      });
+    } catch (error) {
+      extraHelp.push(
+        `Could not save the inventory for the ambient dashboard at ${collapseHome(snapshotPath)}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
   let filtered = tools;
   if (cursor) {
@@ -389,6 +397,7 @@ async function statusCommand(
             surfaceFilter !== undefined && surfaceFilter.length === 1
               ? surfaceFilter[0]
               : undefined,
+          extraHelp,
           ...(narrowed
             ? {
                 emptyHelp: [
@@ -639,7 +648,7 @@ function renderHooksToon(
     schemaVersion: model.schemaVersion,
     hooks: model.hooks,
   };
-  body.codex_hooks_feature = model.codexFeature.enabled;
+  body.codexFeature = model.codexFeature;
   if (model.errors) body.errors = model.errors;
   const help: string[] = [];
   if (!afterInstall) {

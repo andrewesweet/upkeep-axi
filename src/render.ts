@@ -249,6 +249,8 @@ function statusSummary(model: StatusModel): Record<string, number> {
 export interface ToonOptions {
   /** Help lines used when the report carries no rows. */
   emptyHelp?: string[];
+  /** Help lines appended whatever the report carries. */
+  extraHelp?: string[];
 }
 
 export interface StatusRenderOptions extends StatusModelOptions, ToonOptions {
@@ -320,6 +322,7 @@ export function renderStatusToon(
       "Every configured surface is missing or disabled; check the config file",
     ];
   }
+  help.push(...(options.extraHelp ?? []));
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)
     .join("\n")}`;

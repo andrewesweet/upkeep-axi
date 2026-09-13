@@ -29,7 +29,10 @@ describe("setup hooks", () => {
     expect(result.stdout).toContain(
       "  opencode,true,~/.config/opencode/plugins/axi-upkeep-axi.js",
     );
-    expect(result.stdout).toContain("codex_hooks_feature: true");
+    expect(result.stdout).toContain(
+      "codexFeature:\n  enabled: true\n  path: ~/.codex/config.toml",
+    );
+    expect(result.stdout).not.toContain("codex_hooks_feature");
     expect(result.stdout).toContain(
       "Restart your agent session to receive upkeep-axi ambient context",
     );
@@ -125,7 +128,9 @@ describe("setup hooks", () => {
     const before = await runCli(["setup", "hooks", "--status"], fake.env());
     expect(before.code).toBe(0);
     expect(before.stdout).toContain("  claude,false,~/.claude/settings.json");
-    expect(before.stdout).toContain("codex_hooks_feature: false");
+    expect(before.stdout).toContain(
+      "codexFeature:\n  enabled: false\n  path: ~/.codex/config.toml",
+    );
     expect(before.stdout).toContain(
       "Run `upkeep-axi setup hooks` to install or repair the hooks",
     );
