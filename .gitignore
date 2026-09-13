@@ -2,5 +2,10 @@ dist/
 node_modules/
 *.log
 coverage/
-.agents/
+# Agent skills live here, but the AXI principles reference is committed:
+# the principles review anchors this repo's output contract to it.
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/axi/
 .claude/
