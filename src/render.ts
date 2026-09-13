@@ -62,7 +62,10 @@ function projectFields<Row extends Record<string, unknown>>(
 }
 
 /** Collapse the user's home directory to `~` for display. */
-function collapseHome(path: string, homeDir: string = homedir()): string {
+export function collapseHome(
+  path: string,
+  homeDir: string = homedir(),
+): string {
   return path.startsWith(homeDir) ? `~${path.slice(homeDir.length)}` : path;
 }
 

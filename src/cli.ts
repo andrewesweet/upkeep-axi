@@ -1,5 +1,18 @@
 import { existsSync } from "node:fs";
-import { AxiError, runAxiCli } from "axi-sdk-js";
+import { fileURLToPath } from "node:url";
+import { encode } from "@toon-format/toon";
+import {
+  AxiError,
+  installSessionStartHooks,
+  runAxiCli,
+  sessionStartHookStatus,
+  type SessionStartHookStatus as HookStatus,
+} from "axi-sdk-js";
+import {
+  buildAmbientModel,
+  renderAmbientJson,
+  renderAmbientToon,
+} from "./ambient.js";
 import {
   buildPlan,
   executePlan,
@@ -20,6 +33,7 @@ import {
 } from "./journal.js";
 import {
   SCHEMA_VERSION,
+  collapseHome,
   renderApplyJson,
   renderApplyToon,
   renderJournalJson,
@@ -36,11 +50,18 @@ import { VERSION } from "./version.js";
 export const DESCRIPTION =
   "Report workstation update inventory across surfaces.";
 
+/** The hook installer's identity: every managed entry carries this marker. */
+const HOOK_MARKER = "upkeep-axi";
+/** The second entrypoint the hook command runs (no arguments possible). */
+const AMBIENT_BIN_NAME = "upkeep-axi-ambient";
+
 export const TOP_HELP = `usage: upkeep-axi [<command>] [flags]
-commands[3]:
+commands[5]:
   status=report the update inventory (the default command)
   apply=plan updates for named surfaces or --all; runs only with --execute
   journal=print the append-only record of executed applies
+  setup=install or repair the session-start hooks (\`setup hooks\`)
+  ambient=the bounded session-start dashboard (what the hooks inject)
 output:
   Default TOON reports, per surface, installed vs available versions, semver tier, in-use, PATH skew ("update not in effect"), the tool's own update announcements, and the exact apply and pin commands. --json emits the same model.
 notes[2]:
@@ -48,11 +69,12 @@ notes[2]:
   \`update\` refuses: upkeep-axi is not published to npm.
 flags[3]:
   --surface <id[,id...]>, --config <path>, --json
-examples[4]:
+examples[5]:
   upkeep-axi
   upkeep-axi status
   upkeep-axi apply npm --execute
   upkeep-axi apply --all --tier minor --execute
+  upkeep-axi setup hooks
 `;
 
 export const STATUS_HELP = `usage: upkeep-axi status [flags]
@@ -83,6 +105,26 @@ examples[5]:
   upkeep-axi apply --all --tier minor
   upkeep-axi apply --all --tier minor --execute
   upkeep-axi apply npm --json
+`;
+
+export const SETUP_HELP = `usage: upkeep-axi setup hooks [--status] [flags]
+Install or repair the agent SessionStart hooks (Claude Code, Codex, OpenCode) that show the upkeep-axi dashboard at every session start. --status reports what is installed without writing. The hook runs the bounded ambient dashboard (known gaps and in-use conflicts only), never the full inventory.
+flags[2]:
+  --status, --json
+examples[3]:
+  upkeep-axi setup hooks
+  upkeep-axi setup hooks --status
+  upkeep-axi setup hooks --json
+`;
+
+export const AMBIENT_HELP = `usage: upkeep-axi ambient [flags]
+The session-start dashboard: known gaps and in-use conflicts only, most severe first, capped at a few lines with the counts pre-computed. This is exactly what the setup hooks inject; run it to preview them. Probe failures are counted here and reported verbatim by status.
+flags[2]:
+  --config <path>, --json
+examples[3]:
+  upkeep-axi ambient
+  upkeep-axi ambient --json
+  upkeep-axi setup hooks
 `;
 
 export const JOURNAL_HELP = `usage: upkeep-axi journal [flags]
@@ -522,6 +564,173 @@ async function applyCommand(
   });
 }
 
+/**
+ * The hook target: the sibling ambient entrypoint of the running build. The
+ * SDK's hook commands carry no arguments, so the dashboard lives behind its
+ * own entrypoint; deriving it from this module's built location keeps the
+ * installed command pointing at the same build that ran setup.
+ */
+export function ambientEntrypointPath(): string {
+  return fileURLToPath(
+    new URL("../bin/upkeep-axi-ambient.js", import.meta.url),
+  );
+}
+
+interface HooksModel {
+  generatedAt: string;
+  schemaVersion: number;
+  hooks: Array<{ agent: string; installed: boolean; path: string }>;
+  codexFeature?: { enabled: boolean; path: string };
+  errors?: string[];
+}
+
+function hooksModel(status: HookStatus, homeDir?: string): HooksModel {
+  const model: HooksModel = {
+    generatedAt: new Date().toISOString(),
+    schemaVersion: SCHEMA_VERSION,
+    hooks: [
+      {
+        agent: "claude",
+        installed: status.claude.installed,
+        path: collapseHome(status.claude.path, homeDir),
+      },
+      {
+        agent: "codex",
+        installed: status.codex.installed,
+        path: collapseHome(status.codex.path, homeDir),
+      },
+      {
+        agent: "opencode",
+        installed: status.opencode.installed,
+        path: collapseHome(status.opencode.path, homeDir),
+      },
+    ],
+    codexFeature: {
+      enabled: status.codex.userFeatureEnabled,
+      path: collapseHome(status.codex.userFeaturePath, homeDir),
+    },
+  };
+  return model;
+}
+
+function renderHooksToon(
+  model: HooksModel,
+  binPath: string,
+  afterInstall: boolean,
+): string {
+  const body: Record<string, unknown> = {
+    bin: collapseHome(binPath),
+    description: DESCRIPTION,
+    generatedAt: model.generatedAt,
+    schemaVersion: model.schemaVersion,
+    hooks: model.hooks,
+  };
+  if (model.codexFeature) body.codex_hooks_feature = model.codexFeature.enabled;
+  if (model.errors) body.errors = model.errors;
+  const help: string[] = [];
+  if (!afterInstall) {
+    help.push("Run `upkeep-axi setup hooks` to install or repair the hooks");
+  }
+  help.push("Restart your agent session to receive upkeep-axi ambient context");
+  if (model.codexFeature && !model.codexFeature.enabled) {
+    help.push(
+      "Codex needs `[features] hooks = true` in its config.toml; run `upkeep-axi setup hooks` (without --status) to set it",
+    );
+  }
+  return `${encode(body)}\nhelp[${help.length}]:\n${help
+    .map((hint) => `  ${hint}`)
+    .join("\n")}`;
+}
+
+async function setupCommand(
+  args: string[],
+  context?: CliContext,
+): Promise<string> {
+  assertNotRoot();
+  const action = args[0];
+  const stray = args.find((arg, index) => index > 0 && !arg.startsWith("--"));
+  if (action !== "hooks" || (action === "hooks" && stray !== undefined)) {
+    const complaint =
+      action === undefined
+        ? "Name what to set up"
+        : action === "hooks"
+          ? `Unknown argument \`${stray}\` for \`setup hooks\``
+          : `Unknown setup action \`${action}\``;
+    throw new AxiError(complaint, "VALIDATION_ERROR", [
+      "Run `upkeep-axi setup hooks` to install the session-start hooks",
+    ]);
+  }
+  const parsed = parseFlags(
+    args.slice(1),
+    "setup hooks",
+    "--status, --json",
+    new Set(),
+    new Set(["--status"]),
+  );
+  const binPath = context?.binPath ?? process.argv[1] ?? "upkeep-axi";
+  if (parsed.flags.has("--status")) {
+    const status = sessionStartHookStatus({ marker: HOOK_MARKER });
+    const model = hooksModel(status);
+    return parsed.json
+      ? JSON.stringify(model, null, 2)
+      : renderHooksToon(model, binPath, false);
+  }
+  const entrypoint = ambientEntrypointPath();
+  if (!existsSync(entrypoint)) {
+    throw new AxiError(
+      `The ambient entrypoint is not built: ${entrypoint}`,
+      "VALIDATION_ERROR",
+      ["Run `npm run build` in the upkeep-axi checkout, then run setup again"],
+    );
+  }
+  const errors: string[] = [];
+  installSessionStartHooks({
+    marker: HOOK_MARKER,
+    execPath: entrypoint,
+    binaryNames: [AMBIENT_BIN_NAME],
+    onError: (message) => errors.push(message),
+  });
+  const status = sessionStartHookStatus({ marker: HOOK_MARKER });
+  const model = hooksModel(status);
+  if (errors.length > 0) model.errors = errors;
+  return parsed.json
+    ? JSON.stringify(model, null, 2)
+    : renderHooksToon(model, binPath, true);
+}
+
+async function ambientCommand(
+  args: string[],
+  context?: CliContext,
+): Promise<string> {
+  assertNotRoot();
+  const parsed = parseFlags(
+    args,
+    "ambient",
+    "--config <path>, --json",
+    new Set(),
+    new Set(),
+  );
+  if (parsed.positionals.length > 0) {
+    throw new AxiError(
+      `Unknown argument \`${parsed.positionals[0]}\` for \`ambient\``,
+      "VALIDATION_ERROR",
+      ["Run `upkeep-axi ambient --help` for usage"],
+    );
+  }
+  const env = process.env;
+  const config = loadValidatedConfig(parsed.configPath);
+  const surfaces = resolveSurfaces(undefined);
+  const tools = await collectStatus(config, surfaces, env);
+  const model = buildAmbientModel(tools, new Date().toISOString());
+  return parsed.json
+    ? renderAmbientJson(model)
+    : renderAmbientToon(
+        model,
+        context?.binPath ?? process.argv[1] ?? "upkeep-axi",
+        DESCRIPTION,
+      );
+}
+
 async function journalCommand(
   args: string[],
   context?: CliContext,
@@ -579,6 +788,8 @@ export async function main(options: MainOptions = {}): Promise<void> {
       status: statusCommand,
       apply: applyCommand,
       journal: journalCommand,
+      setup: setupCommand,
+      ambient: ambientCommand,
       // Shadow the SDK's npm self-updater: upkeep-axi is private source, not
       // an npm package, so the built-in `update` would only fail confusingly.
       update: () => {
@@ -602,6 +813,10 @@ export async function main(options: MainOptions = {}): Promise<void> {
           ? APPLY_HELP
           : command === "journal"
             ? JOURNAL_HELP
-            : undefined,
+            : command === "setup"
+              ? SETUP_HELP
+              : command === "ambient"
+                ? AMBIENT_HELP
+                : undefined,
   });
 }
