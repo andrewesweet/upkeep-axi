@@ -1,9 +1,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerVersion,
   readJsonFile,
@@ -30,6 +35,34 @@ interface KnownMarketplaces {
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("claude", ctx.env)[0];
+}
+
+/**
+ * The vendor's own updater, keyed by row kind: the binary updates itself,
+ * a plugin row (spelled `name@marketplace`) updates through the plugin
+ * command, a marketplace row through the marketplace command.
+ */
+type ClaudeRowKind = "self" | "plugin" | "marketplace";
+
+function rowKind(tool: string): ClaudeRowKind {
+  if (tool === SURFACE_ID) return "self";
+  return tool.includes("@") ? "plugin" : "marketplace";
+}
+
+function delegateFor(
+  ctx: SurfaceContext,
+  kind: ClaudeRowKind,
+  name: string,
+): ApplyDelegate | undefined {
+  const claude = managerPath(ctx);
+  if (!claude) return undefined;
+  if (kind === "self") return { steps: [{ file: claude, args: ["update"] }] };
+  if (kind === "plugin") {
+    return { steps: [{ file: claude, args: ["plugin", "update", name] }] };
+  }
+  return {
+    steps: [{ file: claude, args: ["plugin", "marketplace", "update", name] }],
+  };
 }
 
 /** Claude reads its state from $CLAUDE_CONFIG_DIR, default ~/.claude. */
@@ -111,7 +144,7 @@ export const claudeSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "claude update",
+      applyCommand: applyCommandText(delegateFor(ctx, "self", SURFACE_ID)!),
       pinCommand: version ? `claude install ${version}` : undefined,
     };
     if (details.length > 0) claudeRow.error = details.join("; ");
@@ -140,7 +173,7 @@ export const claudeSurface: Surface = {
         tool: key,
         installed: true,
         version: typeof entry.version === "string" ? entry.version : undefined,
-        applyCommand: `claude plugin update ${key}`,
+        applyCommand: applyCommandText(delegateFor(ctx, "plugin", key)!),
       });
     }
     for (const name of Object.keys(marketplaceMap)) {
@@ -148,17 +181,17 @@ export const claudeSurface: Surface = {
         surface: SURFACE_ID,
         tool: name,
         installed: true,
-        applyCommand: `claude plugin marketplace update ${name}`,
+        applyCommand: applyCommandText(delegateFor(ctx, "marketplace", name)!),
       });
     }
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
+  apply(ctx, row) {
+    if (!row.applyCommand) return undefined;
+    return delegateFor(ctx, rowKind(row.tool), row.tool);
   },
 
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
-  },
+  /** Updating claude or its plugins replaces files the running binary reads. */
+  replacedExecutables: () => [SURFACE_ID],
 };

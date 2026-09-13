@@ -1,8 +1,9 @@
-import { AxiError } from "axi-sdk-js";
+import { basename } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { compareVersions, extractVersion, parseVersion } from "../semver.js";
 import { mapLimit, pathCandidates } from "../exec.js";
 import type {
+  ApplyDelegate,
   PathSkew,
   SurfaceContext,
   ToolConfig,
@@ -135,21 +136,18 @@ export function managerErrorRow(
 }
 
 /**
- * This build reports status only: apply and pin execution land with the
- * apply task. The contract keeps the methods so adding a surface never
- * changes the module shape.
+ * The command text a delegate names: the executable's basename plus its
+ * fixed argv, one step per line joined with `&&`. This is the one spelling:
+ * status rows display it, the plan prints it, and the journal records it -
+ * all derived from the same declaration, never re-spelled.
  */
-export function deferredMutation(
-  surfaceId: string,
-  operation: "apply" | "pin",
-): never {
-  throw new AxiError(
-    `\`${operation}\` is not available in this build of upkeep-axi`,
-    "UNSUPPORTED",
-    [
-      `This build reports status only; \`${operation}\` for ${surfaceId} lands in a later build`,
-    ],
-  );
+export function applyCommandText(delegate: ApplyDelegate): string {
+  return delegate.steps
+    .map(
+      (step) =>
+        `${basename(step.file)}${step.args.length ? ` ${step.args.join(" ")}` : ""}`,
+    )
+    .join(" && ");
 }
 
 /** Parse a JSON exec result, returning undefined on any failure. */

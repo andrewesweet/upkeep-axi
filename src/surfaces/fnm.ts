@@ -1,8 +1,13 @@
 import { compareVersions, parseVersion, tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -14,6 +19,26 @@ const LS_REMOTE_TIMEOUT_MS = 30_000;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("fnm", ctx.env)[0];
+}
+
+/**
+ * The vendor's own update is two acts - install the version, then make it
+ * the default - so the delegate is two steps with `&&` semantics. Callers
+ * gate on a concrete latest and a tier other than none: a default already
+ * at or past the LTS must never be downgraded.
+ */
+function delegateFor(
+  ctx: SurfaceContext,
+  latest: string,
+): ApplyDelegate | undefined {
+  const fnm = managerPath(ctx);
+  if (!fnm) return undefined;
+  return {
+    steps: [
+      { file: fnm, args: ["install", latest] },
+      { file: fnm, args: ["default", latest] },
+    ],
+  };
 }
 
 export interface FnmInstalledVersion {
@@ -113,6 +138,8 @@ export const fnmSurface: Surface = {
         ? parseFnmLsRemote(remote.stdout)
         : undefined;
     const tier = tierBetween(chosen?.version, latest);
+    const delegate =
+      latest && tier !== "none" ? delegateFor(ctx, latest) : undefined;
     const rows: ToolStatus[] = [
       {
         surface: SURFACE_ID,
@@ -121,21 +148,17 @@ export const fnmSurface: Surface = {
         version: chosen?.version,
         latest,
         tier,
-        applyCommand:
-          latest && tier !== "none"
-            ? `fnm install ${latest} && fnm default ${latest}`
-            : undefined,
+        applyCommand: delegate ? applyCommandText(delegate) : undefined,
         pinCommand: chosen ? `fnm default ${chosen.version}` : undefined,
       },
     ];
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    // The delegate exists only where the row published an apply command:
+    // a concrete latest and a tier other than none.
+    if (!row.applyCommand || !row.latest) return undefined;
+    return delegateFor(ctx, row.latest);
   },
 };

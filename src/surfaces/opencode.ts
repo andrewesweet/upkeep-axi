@@ -1,12 +1,24 @@
 import { extractVersion } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
-import { deferredMutation, enrichWithConfig } from "./shared.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
+import { applyCommandText, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "opencode";
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("opencode", ctx.env)[0];
+}
+
+/** The vendor's own updater; the same command pins a specific version. */
+function delegateFor(ctx: SurfaceContext): ApplyDelegate | undefined {
+  const opencode = managerPath(ctx);
+  if (!opencode) return undefined;
+  return { steps: [{ file: opencode, args: ["upgrade"] }] };
 }
 
 /**
@@ -36,17 +48,13 @@ export const opencodeSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "opencode upgrade",
+      applyCommand: applyCommandText(delegateFor(ctx)!),
       pinCommand: version ? `opencode upgrade ${version}` : undefined,
     };
     return enrichWithConfig(ctx, SURFACE_ID, [row]);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx) {
+    return delegateFor(ctx);
   },
 };

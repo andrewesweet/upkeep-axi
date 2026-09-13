@@ -1,8 +1,13 @@
 import { extractVersion, tierBetween } from "../semver.js";
 import { mapLimit, pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -15,6 +20,16 @@ const PROBE_CONCURRENCY = 8;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("bun", ctx.env)[0];
+}
+
+/** The vendor's own updater for one global package, fixed argv. */
+function delegateFor(
+  ctx: SurfaceContext,
+  name: string,
+): ApplyDelegate | undefined {
+  const bun = managerPath(ctx);
+  if (!bun) return undefined;
+  return { steps: [{ file: bun, args: ["install", "-g", `${name}@latest`] }] };
 }
 
 export interface BunGlobal {
@@ -91,7 +106,7 @@ export const bunSurface: Surface = {
           version: pkg.version,
           latest,
           tier: tierBetween(pkg.version, latest),
-          applyCommand: `bun install -g ${pkg.name}@latest`,
+          applyCommand: applyCommandText(delegateFor(ctx, pkg.name)!),
           pinCommand: `bun install -g ${pkg.name}@${pkg.version}`,
         };
       },
@@ -99,11 +114,7 @@ export const bunSurface: Surface = {
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 };

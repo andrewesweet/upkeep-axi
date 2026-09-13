@@ -1,8 +1,13 @@
 import { tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -14,6 +19,20 @@ const DRY_RUN_TIMEOUT_MS = 30_000;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("gh", ctx.env)[0];
+}
+
+/**
+ * The vendor's own updater for one extension, fixed argv. gh itself exposes
+ * no self-update (the owning package manager carries it); callers gate on
+ * pinned/local extensions, whose upgrade would refuse.
+ */
+function delegateFor(
+  ctx: SurfaceContext,
+  name: string,
+): ApplyDelegate | undefined {
+  const gh = managerPath(ctx);
+  if (!gh) return undefined;
+  return { steps: [{ file: gh, args: ["extension", "upgrade", name] }] };
 }
 
 export interface GhExtension {
@@ -131,6 +150,7 @@ export const ghSurface: Surface = {
       },
       ...extensions.map((extension) => {
         const verdict = verdicts.get(extension.name);
+        const applyable = !verdict?.pinned && !!extension.repo;
         return {
           surface: SURFACE_ID,
           tool: extension.name,
@@ -138,21 +158,25 @@ export const ghSurface: Surface = {
           version: extension.version,
           latest: verdict?.latest,
           tier: tierBetween(extension.version, verdict?.latest),
-          applyCommand:
-            verdict?.pinned || !extension.repo
-              ? undefined
-              : `gh extension upgrade ${extension.name}`,
+          applyCommand: applyable
+            ? applyCommandText(delegateFor(ctx, extension.name)!)
+            : undefined,
         };
       }),
     ];
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
+  apply(ctx, row) {
+    if (row.tool === SURFACE_ID || !row.applyCommand) return undefined;
+    return delegateFor(ctx, row.tool);
   },
 
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  /**
+   * Extensions run as `gh <name>` and land on disk as `gh-<name>`; gh itself
+   * is replaced only when the owning package manager updates it, not here.
+   */
+  replacedExecutables({ tool }) {
+    return tool === SURFACE_ID ? [SURFACE_ID] : [tool, `gh-${tool}`];
   },
 };

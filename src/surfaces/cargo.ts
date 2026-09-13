@@ -1,8 +1,13 @@
 import { tierBetween } from "../semver.js";
 import { mapLimit, pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -15,6 +20,19 @@ const PROBE_CONCURRENCY = 8;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("cargo", ctx.env)[0];
+}
+
+/**
+ * The vendor's own updater: re-running `cargo install <crate>` upgrades an
+ * installed crate to the index latest.
+ */
+function delegateFor(
+  ctx: SurfaceContext,
+  crate: string,
+): ApplyDelegate | undefined {
+  const cargo = managerPath(ctx);
+  if (!cargo) return undefined;
+  return { steps: [{ file: cargo, args: ["install", crate] }] };
 }
 
 export interface CargoInstall {
@@ -107,7 +125,7 @@ export const cargoSurface: Surface = {
           version: install.version,
           latest,
           tier: tierBetween(install.version, latest),
-          applyCommand: `cargo install ${install.name}`,
+          applyCommand: applyCommandText(delegateFor(ctx, install.name)!),
           pinCommand: `cargo install ${install.name} --version ${install.version}`,
         };
       },
@@ -115,11 +133,7 @@ export const cargoSurface: Surface = {
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 };

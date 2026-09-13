@@ -93,6 +93,18 @@ function validateSurface(
       path,
     );
   }
+  if (
+    entry.applyTimeoutMs !== undefined &&
+    (typeof entry.applyTimeoutMs !== "number" ||
+      !Number.isInteger(entry.applyTimeoutMs) ||
+      entry.applyTimeoutMs <= 0)
+  ) {
+    throw configError(
+      `surfaces.${id}.applyTimeoutMs`,
+      "must be a positive integer (milliseconds)",
+      path,
+    );
+  }
   if (entry.tools !== undefined) {
     if (!Array.isArray(entry.tools)) {
       throw configError(`surfaces.${id}.tools`, "must be an array", path);
