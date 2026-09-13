@@ -66,8 +66,10 @@ export function parseFnmLsRemote(stdout: string): string | undefined {
  * one row - the default-alias version, or the last installed one when no
  * alias is set, which is what a fresh shell resolves. The latest LTS comes
  * from `fnm ls-remote --lts`. Installing a version does not make it the
- * default, so the apply command names both acts, and it is only published
- * when a concrete latest is known - `fnm default` needs an exact target.
+ * default, so the apply command names both acts. It is only published when
+ * a concrete latest is known (`fnm default` needs an exact target) and the
+ * tier is not none: a default already at or past the LTS would otherwise be
+ * downgraded by a copy of the command.
  */
 export const fnmSurface: Surface = {
   id: SURFACE_ID,
@@ -110,6 +112,7 @@ export const fnmSurface: Surface = {
       remote.code === 0 && !remote.timedOut
         ? parseFnmLsRemote(remote.stdout)
         : undefined;
+    const tier = tierBetween(chosen?.version, latest);
     const rows: ToolStatus[] = [
       {
         surface: SURFACE_ID,
@@ -117,10 +120,11 @@ export const fnmSurface: Surface = {
         installed: true,
         version: chosen?.version,
         latest,
-        tier: tierBetween(chosen?.version, latest),
-        applyCommand: latest
-          ? `fnm install ${latest} && fnm default ${latest}`
-          : undefined,
+        tier,
+        applyCommand:
+          latest && tier !== "none"
+            ? `fnm install ${latest} && fnm default ${latest}`
+            : undefined,
         pinCommand: chosen ? `fnm default ${chosen.version}` : undefined,
       },
     ];

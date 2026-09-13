@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -558,6 +558,27 @@ exit 1`,
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
       "  fnm,node,true,v24.18.0,v24.21.0,minor,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
+    );
+  });
+
+  it("publishes no apply command when the default is newer than the LTS", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "fnm",
+      `if [ "$1" = "list" ]; then
+  echo '* v25.2.0 default'
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  echo 'v24.21.0 (Krypton)'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "fnm"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  fnm,node,true,v25.2.0,v24.21.0,none,null,fnm default v25.2.0",
     );
   });
 
@@ -1253,13 +1274,28 @@ describe("config resolution", () => {
     expect(result.stdout).toContain("  mise,");
   });
 
+  it("runs with defaults when no config file exists", async () => {
+    const fake = stdEnv();
+    rmSync(fake.configPath);
+    const result = await runCli(
+      ["status", "--surface", "npm"],
+      fake.env({ XDG_CONFIG_HOME: `${fake.root}/empty-xdg` }),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  npm,left-pad,true,1.3.0,1.3.0,none,");
+  });
+
   it("reads --config over the default path", async () => {
     const fake = stdEnv();
     const alt = `${fake.root}/alt-config.json`;
     writeRawConfig(
       alt,
       JSON.stringify({
-        surfaces: { mise: { enabled: false }, uv: { enabled: false } },
+        surfaces: {
+          mise: { enabled: false },
+          uv: { enabled: false },
+          apt: { rebootRequiredPath: `${fake.root}/no-reboot-required` },
+        },
       }),
     );
     const viaFlag = await runCli(["status", "--config", alt], fake.env());
