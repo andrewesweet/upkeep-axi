@@ -5,10 +5,12 @@
   "description": "AXI CLI that reports update inventory (installed vs available, semver tier, PATH skew) for this workstation and delegates updates to each vendor's own updater",
   "type": "module",
   "bin": {
-    "upkeep-axi": "./dist/bin/upkeep-axi.js"
+    "upkeep-axi": "./dist/bin/upkeep-axi.js",
+    "upkeep-axi-ambient": "./dist/bin/upkeep-axi-ambient.js"
   },
   "scripts": {
     "build": "tsc",
+    "build:skill": "tsx scripts/build-skill.ts",
     "test": "npm run build && vitest run",
     "test:watch": "vitest",
     "dev": "tsx bin/upkeep-axi.ts",
