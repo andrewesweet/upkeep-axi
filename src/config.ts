@@ -16,8 +16,9 @@ export function defaultConfigPath(
   return join(xdg, "upkeep-axi", "config.json");
 }
 /**
- * Load and validate the config. A missing file is the default config: every
- * registry surface enabled, no per-tool entries. A malformed file is a usage
+ * Load and validate the config. A missing default file is the default config:
+ * every registry surface enabled, no per-tool entries (an explicit --config
+ * path must exist; the CLI checks that). A malformed file is a usage
  * error, never silently ignored.
  */
 export function loadConfig(path: string): UpkeepConfig {

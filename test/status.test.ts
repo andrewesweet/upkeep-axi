@@ -128,7 +128,7 @@ describe("status (TOON default)", () => {
     env.writeFake(
       "mise",
       `if [ "$1" = "ls" ]; then
-  echo '{"jq":[{"version":"1.8.1","installed":true,"active":false},{"version":"1.8.2","installed":true,"active":true},{"version":"1.9.0","installed":true,"active":false}],"just":[{"version":"1.57.0","installed":true,"active":false},{"version":"1.58.0","installed":true,"active":false}]}'
+  echo '{"jq":[{"version":"1.8.1","installed":true,"active":false},{"version":"1.8.2","installed":true,"active":true},{"version":"1.9.0","installed":true,"active":false}],"just":[{"version":"1.57.0","installed":true,"active":false},{"version":"1.58.0","installed":true,"active":false}],"node":[{"version":"20.11.0","installed":true,"active":false},{"version":"22.0.0","installed":false,"active":true}]}'
   exit 0
 fi
 if [ "$1" = "outdated" ]; then
@@ -144,10 +144,13 @@ exit 1`,
     const result = await runCli(["status", "--surface", "mise"], env.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[4]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     expect(result.stdout).toContain(
       "  mise,jq,true,1.8.2,1.8.3,patch,mise upgrade jq,mise use -g jq@1.8.2",
+    );
+    expect(result.stdout).toContain(
+      "  mise,node,true,20.11.0,null,null,mise upgrade node,mise use -g node@20.11.0",
     );
     expect(result.stdout).toContain(
       "  mise,just,true,1.58.0,null,null,mise upgrade just,mise use -g just@1.58.0",
@@ -511,6 +514,14 @@ describe("config resolution", () => {
     expect(viaFlag.code).toBe(0);
     expect(viaFlag.stdout).not.toContain("  mise,");
     expect(viaFlag.stdout).toContain("  npm,");
+  });
+
+  it("rejects an explicit --config path that does not exist", async () => {
+    const fake = stdEnv();
+    const missing = `${fake.root}/nope.json`;
+    const result = await runCli(["status", "--config", missing], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(`Config file not found: ${missing}`);
   });
 
   it("rejects an unknown surface id in config", async () => {

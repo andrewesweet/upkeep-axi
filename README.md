@@ -67,7 +67,7 @@ The tool owns its config file, installed by host-up:
 or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
 ```
 
-A missing file means: every registry surface enabled, no per-tool entries. Per-tool entries use Firstmate's watched-tools field names so both tools describe a tool the same way:
+A missing default file means: every registry surface enabled, no per-tool entries; an explicit `--config` path must exist. Per-tool entries use Firstmate's watched-tools field names so both tools describe a tool the same way:
 
 ```json
 {

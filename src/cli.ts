@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { AxiError, runAxiCli } from "axi-sdk-js";
 import { defaultConfigPath, loadConfig } from "./config.js";
 import { assertNotRoot } from "./exec.js";
@@ -120,6 +121,13 @@ async function statusCommand(
         "Valid flags for `status`: --json, --surface <id[,id...]>, --config <path> (--help always allowed)",
         "Run `upkeep-axi status --help`",
       ],
+    );
+  }
+  if (configPath !== undefined && !existsSync(configPath)) {
+    throw new AxiError(
+      `Config file not found: ${configPath}`,
+      "VALIDATION_ERROR",
+      ["Pass --config <path> to an existing file, or omit it for the default"],
     );
   }
   const config = loadConfig(configPath ?? defaultConfigPath());

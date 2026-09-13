@@ -35,8 +35,9 @@ function managerPath(ctx: SurfaceContext): string | undefined {
  * `mise ls --json`; available versions come from `mise outdated --json`, which
  * lists only tools it found updates for - a tool absent there keeps its
  * latest and tier absent. A tool with several installed versions reports one
- * row: the active version, or the last listed when none is active, which is
- * the version `mise outdated` judges. Pins target the global config, where
+ * row: the active installed version, or the last installed one when none is
+ * active, which is the version `mise outdated` judges; a requested version
+ * that is not installed never hides an installed one. Pins target the global config, where
  * host-wide tools live. mise itself reports `mise self-update` as its apply
  * command; its latest stays absent because no honest cheap probe exists.
  */
@@ -80,11 +81,15 @@ export const miseSurface: Surface = {
         (entry): entry is MiseLsEntry =>
           entry !== null && typeof entry === "object",
       );
+      const present = valid.filter(
+        (candidate) => candidate.installed !== false,
+      );
+      const pool = present.length > 0 ? present : valid;
       const entry =
-        valid.find((candidate) => candidate.active === true) ?? valid.at(-1);
+        pool.find((candidate) => candidate.active === true) ?? pool.at(-1);
       if (!entry) continue;
-      // A not-installed entry reports only its absence: a version here
-      // would be mise's requested version, not an installed fact.
+      // A tool with no installed version reports only its absence: a version
+      // here would be mise's requested version, not an installed fact.
       if (entry.installed === false) {
         rows.push({ surface: SURFACE_ID, tool, installed: false });
         continue;
