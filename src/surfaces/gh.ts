@@ -24,7 +24,7 @@ export interface GhExtension {
 
 /**
  * Parse `gh extension list`: one `NAME<TAB>REPO[<TAB>VERSION]` row per
- * extension (older builds print the columns space-aligned). The list spells
+ * extension, as gh prints it to a pipe. The list spells
  * names with a `gh ` prefix while upgrade and install spell them bare, so the
  * prefix is stripped here; a `-` repo marks a local extension, which is no
  * repo at all.
@@ -34,11 +34,10 @@ export function parseGhExtensionList(stdout: string): GhExtension[] {
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;
     const fields = line
-      .split(/\t| {2,}/)
+      .split("\t")
       .map((field) => field.trim())
       .filter(Boolean);
     if (fields.length < 2) continue;
-    if (fields[0].toUpperCase() === "NAME") continue;
     extensions.push({
       name: fields[0].replace(/^gh /, ""),
       repo: fields[1] === "-" ? undefined : fields[1],

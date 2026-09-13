@@ -33,6 +33,8 @@ export interface FakeEnv {
   writeFakeIn(dir: string, name: string, body: string): void;
   /** Write a plain file under the fake home (state the vendors keep there). */
   writeFakeFile(relPath: string, content: string): void;
+  /** Surface options every writeConfig call keeps unless it overrides them. */
+  surfaceDefaults: Record<string, unknown>;
   writeConfig(config: unknown): string;
   /** Base env for runCli; spread extras over it. */
   env(extra?: Record<string, string>): NodeJS.ProcessEnv;
@@ -51,11 +53,13 @@ export function createEnv(): FakeEnv {
     writeFileSync(path, `#!/bin/sh\n${body}\n`);
     chmodSync(path, 0o755);
   };
+  const surfaceDefaults: Record<string, unknown> = {};
   return {
     root,
     binDir,
     xdgDir,
     configPath,
+    surfaceDefaults,
     writeFake: (name, body) => writeFakeIn(binDir, name, body),
     writeFakeIn,
     writeFakeFile: (relPath, content) => {
@@ -64,7 +68,11 @@ export function createEnv(): FakeEnv {
       writeFileSync(path, content);
     },
     writeConfig: (config) => {
-      writeFakeConfigAt(configPath, config);
+      const base = config as { surfaces?: Record<string, unknown> };
+      writeFakeConfigAt(configPath, {
+        ...base,
+        surfaces: { ...surfaceDefaults, ...base.surfaces },
+      });
       return configPath;
     },
     env: (extra = {}) => ({
@@ -119,9 +127,10 @@ export function runCli(
  * pending; the set-reboot test points it at a real file.
  */
 export function installStandardFakes(env: FakeEnv): void {
-  env.writeConfig({
-    surfaces: { apt: { rebootRequiredPath: `${env.root}/no-reboot-required` } },
-  });
+  env.surfaceDefaults.apt = {
+    rebootRequiredPath: `${env.root}/no-reboot-required`,
+  };
+  env.writeConfig({});
   env.writeFake(
     "npm",
     `if [ "$1" = "ls" ]; then

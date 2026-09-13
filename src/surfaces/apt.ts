@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import { tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  SemverTier,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
   deferredMutation,
   enrichWithConfig,
@@ -40,6 +45,28 @@ export function parseAptUpgradable(stdout: string): AptUpgradable[] {
   return packages;
 }
 
+function splitEpoch(version: string): [number, string] {
+  const match = version.match(/^(\d+):(.*)$/);
+  return match ? [Number(match[1]), match[2]] : [0, version];
+}
+
+/**
+ * Debian versions carry an optional `epoch:` prefix that outranks the rest;
+ * the semver heuristic cannot see it (`1:` has no dot), so an epoch bump is
+ * tiered here as major and only equal epochs fall through to the numeric
+ * prefix comparison.
+ */
+export function debianTier(
+  from: string | undefined,
+  latest: string | undefined,
+): SemverTier | undefined {
+  if (from === undefined || latest === undefined) return undefined;
+  const [fromEpoch, fromRest] = splitEpoch(from);
+  const [latestEpoch, latestRest] = splitEpoch(latest);
+  if (fromEpoch !== latestEpoch) return "major";
+  return tierBetween(fromRest, latestRest);
+}
+
 function rebootRequiredRow(ctx: SurfaceContext): ToolStatus {
   const path = ctx.surface.rebootRequiredPath ?? DEFAULT_REBOOT_REQUIRED_PATH;
   return {
@@ -57,8 +84,8 @@ function rebootRequiredRow(ctx: SurfaceContext): ToolStatus {
  * the captain runs, never this tool. The reboot-required flag is reported
  * as a row whose presence is the fact; its path is a config option
  * (`rebootRequiredPath`, default /var/run/reboot-required). Debian version
- * strings tier by their numeric prefix, so a revision-only bump can tier as
- * none even though the row still carries both versions verbatim.
+ * strings tier by epoch, then numeric prefix, so a revision-only bump can
+ * tier as none even though the row still carries both versions verbatim.
  */
 export const aptSurface: Surface = {
   id: SURFACE_ID,
@@ -93,7 +120,7 @@ export const aptSurface: Surface = {
           installed: true,
           version: pkg.from,
           latest: pkg.latest,
-          tier: tierBetween(pkg.from, pkg.latest),
+          tier: debianTier(pkg.from, pkg.latest),
           applyCommand: "sudo apt-get update && sudo apt-get upgrade",
           pinCommand: pkg.from
             ? `sudo apt-get install ${pkg.name}=${pkg.from}`

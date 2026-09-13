@@ -48,7 +48,7 @@ The tool never runs as root and never publishes itself to npm; its built-in `upd
 
 ## Surfaces
 
-Version one ships fifteen status surfaces and runs on this WSL2 Ubuntu host only:
+Fifteen status surfaces have shipped so far (the remaining version-one surfaces from the spec follow in later tasks); the tool runs on this WSL2 Ubuntu host only:
 
 | id            | scope                                  | installed via                                            | available via                                                                             |
 | ------------- | -------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |

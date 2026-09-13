@@ -24,13 +24,16 @@ function npxPath(ctx: SurfaceContext): string | undefined {
 interface SkillsInvocation {
   file: string;
   prefix: string[];
+  /** The command as the captain types it, so apply text is copyable here. */
+  command: string;
 }
 
 function invocation(ctx: SurfaceContext): SkillsInvocation | undefined {
   const skills = managerPath(ctx);
-  if (skills) return { file: skills, prefix: [] };
+  if (skills) return { file: skills, prefix: [], command: "skills" };
   const npx = npxPath(ctx);
-  if (npx) return { file: npx, prefix: ["-y", "skills"] };
+  if (npx)
+    return { file: npx, prefix: ["-y", "skills"], command: "npx -y skills" };
   return undefined;
 }
 
@@ -60,7 +63,8 @@ export function parseSkillsList(stdout: string): string[] {
  * (`skills update`), but no update check - so this surface reports
  * installed only: every row carries its apply command and no version,
  * latest, or tier, because the manager itself reports none. Reached via
- * `npx -y skills` where no `skills` binary is on PATH.
+ * `npx -y skills` where no `skills` binary is on PATH, and the apply
+ * command is spelled the same way so a copy of it runs.
  */
 export const skillsSurface: Surface = {
   id: SURFACE_ID,
@@ -96,7 +100,7 @@ export const skillsSurface: Surface = {
       surface: SURFACE_ID,
       tool: name,
       installed: true,
-      applyCommand: `skills update -g ${name}`,
+      applyCommand: `${inv.command} update -g ${name}`,
     }));
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },

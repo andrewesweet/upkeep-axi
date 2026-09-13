@@ -480,7 +480,7 @@ exit 1`,
       "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  skills,find-skills,true,null,null,null,skills update -g find-skills,null",
+      "  skills,find-skills,true,null,null,null,npx -y skills update -g find-skills,null",
     );
   });
 
@@ -634,6 +634,24 @@ exit 1`,
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
       "  apt,reboot-required,true,null,null,null,null,null",
+    );
+  });
+
+  it("tiers a Debian epoch bump as major", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "apt",
+      `if [ "$1" = "list" ] && [ "$2" = "--upgradable" ]; then
+  echo 'Listing...'
+  echo 'vim/nowhere 2:1.0-1 amd64 [upgradable from: 1:9.1-1]'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      '  apt,vim,true,"1:9.1-1","2:1.0-1",major,sudo apt-get update && sudo apt-get upgrade,"sudo apt-get install vim=1:9.1-1"',
     );
   });
 
