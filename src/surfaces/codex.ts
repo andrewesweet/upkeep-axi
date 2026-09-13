@@ -1,7 +1,12 @@
 import { extractVersion, tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
-import { deferredMutation, enrichWithConfig } from "./shared.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
+import { applyCommandText, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "codex";
 const PACKAGE = "@openai/codex";
@@ -9,6 +14,13 @@ const VIEW_TIMEOUT_MS = 15_000;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("codex", ctx.env)[0];
+}
+
+/** The vendor's own updater; the standalone installer exposes no pin. */
+function delegateFor(ctx: SurfaceContext): ApplyDelegate | undefined {
+  const codex = managerPath(ctx);
+  if (!codex) return undefined;
+  return { steps: [{ file: codex, args: ["update"] }] };
 }
 
 /**
@@ -39,7 +51,7 @@ export const codexSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "codex update",
+      applyCommand: applyCommandText(delegateFor(ctx)!),
     };
     const npm = pathCandidates("npm", ctx.env)[0];
     if (npm) {
@@ -56,11 +68,7 @@ export const codexSurface: Surface = {
     return enrichWithConfig(ctx, SURFACE_ID, [row]);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx) {
+    return delegateFor(ctx);
   },
 };

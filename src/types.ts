@@ -2,8 +2,8 @@
  * Core data model: configuration, status rows, and the surface module contract.
  *
  * Every configured surface is one module exposing `detect`, `status`, `apply`,
- * and `pin`. This build implements `detect` and `status` only; `apply` and
- * `pin` are declared by the contract and refuse until the apply task lands.
+ * and `replacedExecutables`. `detect` and `status` are read-only; `apply`
+ * declares the fixed delegate argv that the apply runner executes.
  */
 
 /** Semver gap tier. A gap whose versions do not both parse is `major`. */
@@ -24,6 +24,7 @@ export type SemverTier = "none" | "patch" | "minor" | "major";
  * - `git`: watched-tools schema compatibility; consumed by the Firstmate-fork
  *   surface in a later build.
  */
+
 export interface ToolConfig {
   name: string;
   command?: string;
@@ -39,6 +40,12 @@ export interface SurfaceConfig {
   tools?: ToolConfig[];
   /** apt only: where the reboot-required flag lives (default /var/run/reboot-required). */
   rebootRequiredPath?: string;
+  /**
+   * apply only: the budget for one delegate run in milliseconds. A delegate
+   * still running at the budget is left running and reported unconfirmed.
+   * Defaults to DEFAULT_APPLY_TIMEOUT_MS (900000).
+   */
+  applyTimeoutMs?: number;
 }
 
 export interface UpkeepConfig {
@@ -65,6 +72,9 @@ export interface SurfaceContext {
   exec(file: string, args: string[], timeoutMs?: number): Promise<ExecResult>;
 }
 
+/** Where an in-use fact came from: the three sources the captain named. */
+export type InUseSource = "herdr" | "no-mistakes" | "process";
+
 /** Measured PATH skew: a newer copy of `command` sits behind the resolved one. */
 export interface PathSkew {
   command: string;
@@ -72,6 +82,24 @@ export interface PathSkew {
   resolvedVersion?: string;
   newerPath: string;
   newerVersion?: string;
+}
+
+/**
+ * One step of a delegate: an absolute executable and its fixed argv. argv is
+ * declared in the surface module and never assembled anywhere else.
+ */
+export interface ApplyStep {
+  file: string;
+  args: string[];
+}
+
+/**
+ * The fixed delegate one apply runs: the vendor's own updater, spelled as an
+ * ordered list of steps (usually one) that run sequentially, `&&` semantics:
+ * the first failing or over-budget step stops the delegate.
+ */
+export interface ApplyDelegate {
+  steps: ApplyStep[];
 }
 
 /** One row per tool per surface. Absent facts stay absent. */
@@ -94,15 +122,33 @@ export interface ToolStatus {
   announcement?: string;
   /** Probe failure detail; reported verbatim in the sparse errors block. */
   error?: string;
+  /**
+   * Measured only for installed rows whose apply exists: true when a source
+   * (herdr agent list, no-mistakes runs, the process table) names an
+   * executable the apply would replace; false when the sources measured
+   * clear or the module declares replacement safe while running. Absent
+   * where there is nothing to apply. Sources that fail contribute nothing.
+   */
+  inUse?: boolean;
+  /** Why the row is in use; reported verbatim in the sparse in_use block. */
+  inUseDetail?: string;
 }
 
 /**
  * The surface module contract: one module per ecosystem.
  *
  * `detect` answers whether the surface's manager is installed. `status` is
- * read-only and always safe. `apply` delegates to the vendor's own updater
- * with fixed argv; `pin` delegates to the vendor's own pin command. This
- * build implements `detect` and `status`; `apply` and `pin` refuse.
+ * read-only and always safe. `apply` declares the fixed delegate argv for one
+ * of its own status rows - the vendor's own updater, never assembled at
+ * runtime anywhere else; undefined where the surface cannot apply the tool
+ * (report-only, pinned, no vendor updater). `replacedExecutables` names the
+ * executables whose files an apply would replace; an empty list declares
+ * replacement safe even while the tool runs (npm globals). Rollback is not a
+ * module concern: every row carries its pin command text, and the journal
+ * records it.
+ *
+ * Deliberate shape change in the apply build: the prior `pin` method (a
+ * refusal stub) is gone; pin text stays where it already lived, on the row.
  */
 export interface Surface {
   readonly id: string;
@@ -111,6 +157,6 @@ export interface Surface {
   readonly managerTool: string;
   detect(ctx: SurfaceContext): Promise<boolean>;
   status(ctx: SurfaceContext): Promise<ToolStatus[]>;
-  apply(ctx: SurfaceContext): Promise<never>;
-  pin(ctx: SurfaceContext): Promise<never>;
+  apply(ctx: SurfaceContext, row: ToolStatus): ApplyDelegate | undefined;
+  replacedExecutables?(tool: string): string[];
 }

@@ -7,12 +7,7 @@ import type {
   SurfaceContext,
   ToolStatus,
 } from "../types.js";
-import {
-  deferredMutation,
-  enrichWithConfig,
-  managerErrorRow,
-  managerVersion,
-} from "./shared.js";
+import { enrichWithConfig, managerErrorRow, managerVersion } from "./shared.js";
 
 const SURFACE_ID = "apt";
 const LIST_TIMEOUT_MS = 30_000;
@@ -132,11 +127,8 @@ export const aptSurface: Surface = {
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  /** Report-only: apt has no delegate here, ever. Nothing runs as root. */
+  apply() {
+    return undefined;
   },
 };

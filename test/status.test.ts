@@ -32,137 +32,141 @@ describe("status (TOON default)", () => {
     // 5 npm + 3 mise + 2 uv + 3 cargo + 2 bun + 4 gh + 2 skills + 1 fnm + 3 apt
     // + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes.
     expect(out).toContain(
-      "tools[39]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[39]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     // npm rows: tier none, minor, unparseable-as-major, and unknown latest.
     expect(out).toContain(
-      "  npm,left-pad,true,1.3.0,1.3.0,none,npm install -g left-pad@latest,npm install -g left-pad@1.3.0",
+      "  npm,left-pad,true,1.3.0,1.3.0,none,false,npm install -g left-pad@latest,npm install -g left-pad@1.3.0",
     );
     expect(out).toContain(
-      "  npm,typescript,true,5.6.3,5.7.2,minor,npm install -g typescript@latest,npm install -g typescript@5.6.3",
+      "  npm,typescript,true,5.6.3,5.7.2,minor,false,npm install -g typescript@latest,npm install -g typescript@5.6.3",
     );
     // An unparseable gap is major, never casual.
     expect(out).toContain(
-      "  npm,unparsable,true,dev,2026.09.0,major,npm install -g unparsable@latest,npm install -g unparsable@dev",
+      "  npm,unparsable,true,dev,2026.09.0,major,false,npm install -g unparsable@latest,npm install -g unparsable@dev",
     );
     // A failed latest read stays absent: no latest, no tier.
     expect(out).toContain(
-      "  npm,gone,true,2.0.0,null,null,npm install -g gone@latest,npm install -g gone@2.0.0",
+      "  npm,gone,true,2.0.0,null,null,false,npm install -g gone@latest,npm install -g gone@2.0.0",
     );
     // mise reports itself plus managed tools; a configured-not-installed
     // entry reports installed=false.
     expect(out).toContain(
-      "  mise,mise,true,2026.8.8,null,null,mise self-update,mise self-update 2026.8.8",
+      "  mise,mise,true,2026.8.8,null,null,false,mise self-update,mise self-update 2026.8.8",
     );
     expect(out).toContain(
-      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0",
+      "  mise,node,true,20.11.0,22.0.0,major,false,mise upgrade node,mise use -g node@20.11.0",
     );
     expect(out).toContain("  mise,ghost,false,null,null,null,null,null");
     // A configured-not-installed mise entry reports only its absence.
     expect(out).toContain("  mise,ghost,false,null,null,null,null,null");
     // uv tools with and without a known update.
     expect(out).toContain(
-      "  uv,ruff,true,0.3.4,0.9.0,minor,uv tool upgrade ruff,uv tool install ruff==0.3.4",
+      "  uv,ruff,true,0.3.4,0.9.0,minor,false,uv tool upgrade ruff,uv tool install ruff==0.3.4",
     );
     expect(out).toContain(
-      "  uv,zizmor,true,1.24.1,null,null,uv tool upgrade zizmor,uv tool install zizmor==1.24.1",
+      "  uv,zizmor,true,1.24.1,null,null,false,uv tool upgrade zizmor,uv tool install zizmor==1.24.1",
     );
     // cargo crates: searched latest, current, and a crate the search does
     // not name (latest and tier stay absent); pin drops the `v` prefix.
     expect(out).toContain(
-      "  cargo,bacon,true,3.10.0,3.12.4,minor,cargo install bacon,cargo install bacon --version 3.10.0",
+      "  cargo,bacon,true,3.10.0,3.12.4,minor,false,cargo install bacon,cargo install bacon --version 3.10.0",
     );
     expect(out).toContain(
-      "  cargo,fd-find,true,10.2.0,10.2.0,none,cargo install fd-find,cargo install fd-find --version 10.2.0",
+      "  cargo,fd-find,true,10.2.0,10.2.0,none,false,cargo install fd-find,cargo install fd-find --version 10.2.0",
     );
     expect(out).toContain(
-      "  cargo,unsearchable,true,0.1.0,null,null,cargo install unsearchable,cargo install unsearchable --version 0.1.0",
+      "  cargo,unsearchable,true,0.1.0,null,null,false,cargo install unsearchable,cargo install unsearchable --version 0.1.0",
     );
     // bun globals: header line skipped, registry check per package.
     expect(out).toContain(
-      "  bun,critique,true,0.1.140,0.2.0,minor,bun install -g critique@latest,bun install -g critique@0.1.140",
+      "  bun,critique,true,0.1.140,0.2.0,minor,false,bun install -g critique@latest,bun install -g critique@0.1.140",
     );
     expect(out).toContain(
-      "  bun,stale,true,2.0.0,null,null,bun install -g stale@latest,bun install -g stale@2.0.0",
+      "  bun,stale,true,2.0.0,null,null,false,bun install -g stale@latest,bun install -g stale@2.0.0",
     );
     // gh itself has no self-update check; extensions read the dry-run: the
     // up-to-date one keeps latest absent, the pinned one carries no apply.
     expect(out).toContain("  gh,gh,true,2.97.0,null,null,null,null");
     expect(out).toContain(
-      "  gh,stack,true,v0.1.1,null,null,gh extension upgrade stack,null",
+      "  gh,stack,true,v0.1.1,null,null,false,gh extension upgrade stack,null",
     );
     expect(out).toContain(
-      "  gh,dash,true,v1.1.0,v1.2.0,minor,gh extension upgrade dash,null",
+      "  gh,dash,true,v1.1.0,v1.2.0,minor,false,gh extension upgrade dash,null",
     );
     expect(out).toContain("  gh,pinned,true,v0.3.0,null,null,null,null");
     // skills report installed only: the CLI exposes no update check.
     expect(out).toContain(
-      "  skills,caveman,true,null,null,null,skills update -g caveman,null",
+      "  skills,caveman,true,null,null,null,false,skills update -g caveman,null",
     );
     expect(out).toContain(
-      "  skills,handoff,true,null,null,null,skills update -g handoff,null",
+      "  skills,handoff,true,null,null,null,false,skills update -g handoff,null",
     );
     // fnm collapses to the default-alias version; installing alone does not
     // update, so the apply names both acts.
     expect(out).toContain(
-      "  fnm,node,true,v24.18.0,v24.21.0,minor,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
+      "  fnm,node,true,v24.18.0,v24.21.0,minor,false,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
     );
     // apt rows are report-only with the exact sudo commands; the
     // revision-only bump tiers none while the major is a major.
     expect(out).toContain(
-      "  apt,openssl,true,3.0.2-0ubuntu1.14,3.0.2-0ubuntu1.15,none,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install openssl=3.0.2-0ubuntu1.14",
+      "  apt,openssl,true,3.0.2-0ubuntu1.14,3.0.2-0ubuntu1.15,none,false,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install openssl=3.0.2-0ubuntu1.14",
     );
     expect(out).toContain(
-      "  apt,ripgrep,true,14.1.1,15.0.0,major,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install ripgrep=14.1.1",
+      "  apt,ripgrep,true,14.1.1,15.0.0,major,false,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install ripgrep=14.1.1",
     );
     expect(out).toContain(
-      "  apt,reboot-required,false,null,null,null,null,null",
+      "  apt,reboot-required,false,null,null,null,null,null,null",
     );
     // Claude Code itself pins via its native installer; plugin versions come
     // from the plugin manifest or the installer's record; enabled but not
     // installed plugins report only their absence; marketplaces report their
     // own update command.
     expect(out).toContain(
-      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+      "  claude,claude,true,2.1.270,null,null,false,claude update,claude install 2.1.270",
     );
     expect(out).toContain(
-      "  claude,gopls-lsp@claude-plugins-official,true,1.0.0,null,null,claude plugin update gopls-lsp@claude-plugins-official,null",
+      "  claude,gopls-lsp@claude-plugins-official,true,1.0.0,null,null,false,claude plugin update gopls-lsp@claude-plugins-official,null",
     );
     expect(out).toContain(
-      "  claude,context7@claude-plugins-official,true,3deb821cb71c,null,null,claude plugin update context7@claude-plugins-official,null",
+      "  claude,context7@claude-plugins-official,true,3deb821cb71c,null,null,false,claude plugin update context7@claude-plugins-official,null",
     );
     expect(out).toContain(
-      "  claude,ghost-plugin@ghost-market,false,null,null,null,null,null",
+      "  claude,ghost-plugin@ghost-market,false,null,null,null,null,null,null",
     );
     expect(out).toContain(
-      "  claude,claude-plugins-official,true,null,null,null,claude plugin marketplace update claude-plugins-official,null",
+      "  claude,claude-plugins-official,true,null,null,null,false,claude plugin marketplace update claude-plugins-official,null",
     );
     expect(out).toContain(
-      "  claude,caveman,true,null,null,null,claude plugin marketplace update caveman,null",
+      "  claude,caveman,true,null,null,null,false,claude plugin marketplace update caveman,null",
     );
     // Codex reads its latest from the npm registry Codex's docs name and
     // updates itself; its installer exposes no pin.
     expect(out).toContain(
-      "  codex,codex,true,0.154.0,0.155.0,minor,codex update,null",
+      "  codex,codex,true,0.154.0,0.155.0,minor,false,codex update,null",
     );
     expect(out).toContain(
-      "  opencode,opencode,true,1.18.13,null,null,opencode upgrade,opencode upgrade 1.18.13",
+      "  opencode,opencode,true,1.18.13,null,null,false,opencode upgrade,opencode upgrade 1.18.13",
     );
     // pi list reports install sources, not versions, so package rows carry no
     // version; pi itself pins nothing (no vendor pin command). TOON quotes
     // values containing its delimiter characters.
-    expect(out).toContain("  pi,pi,true,0.85.1,null,null,pi update self,null");
     expect(out).toContain(
-      '  pi,"github:owner/some-pi-ext",true,null,null,null,"pi update github:owner/some-pi-ext",null',
+      "  pi,pi,true,0.85.1,null,null,false,pi update self,null",
+    );
+    expect(out).toContain(
+      '  pi,"github:owner/some-pi-ext",true,null,null,null,false,"pi update github:owner/some-pi-ext",null',
     );
     // Herdr plugins are inventory only: herdr exposes no plugin updater.
     expect(out).toContain(
-      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+      "  herdr,herdr,true,0.9.0,null,null,false,herdr update,null",
     );
-    expect(out).toContain("  herdr,annotate,true,0.4.0,null,null,null,null");
-    expect(out).toContain("  herdr,collie,true,1.8.0,null,null,null,null");
     expect(out).toContain(
-      "  no-mistakes,no-mistakes,true,1.72.0,null,null,no-mistakes update,null",
+      "  herdr,annotate,true,0.4.0,null,null,null,null,null",
+    );
+    expect(out).toContain("  herdr,collie,true,1.8.0,null,null,null,null,null");
+    expect(out).toContain(
+      "  no-mistakes,no-mistakes,true,1.72.0,null,null,false,no-mistakes update,null",
     );
     // Registry order: every surface keeps its declaration position.
     expect(out.indexOf("  npm,")).toBeLessThan(out.indexOf("  mise,"));
@@ -195,7 +199,7 @@ describe("status (TOON default)", () => {
     const result = await runCli([], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[39]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[39]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
   });
 
@@ -206,7 +210,7 @@ describe("status (TOON default)", () => {
     expect(all.code).toBe(0);
     expect(all.stdout).not.toContain("  uv,");
     expect(all.stdout).toContain(
-      "tools[37]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[37]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     const scoped = await runCli(
       ["status", "--surface", "npm,mise"],
@@ -214,7 +218,7 @@ describe("status (TOON default)", () => {
     );
     expect(scoped.code).toBe(0);
     expect(scoped.stdout).toContain(
-      "tools[8]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[8]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(scoped.stdout).not.toContain("  uv,");
   });
@@ -250,16 +254,16 @@ exit 1`,
     const result = await runCli(["status", "--surface", "mise"], env.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[4]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[4]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  mise,jq,true,1.8.2,1.8.3,patch,mise upgrade jq,mise use -g jq@1.8.2",
+      "  mise,jq,true,1.8.2,1.8.3,patch,false,mise upgrade jq,mise use -g jq@1.8.2",
     );
     expect(result.stdout).toContain(
-      "  mise,node,true,20.11.0,null,null,mise upgrade node,mise use -g node@20.11.0",
+      "  mise,node,true,20.11.0,null,null,false,mise upgrade node,mise use -g node@20.11.0",
     );
     expect(result.stdout).toContain(
-      "  mise,just,true,1.58.0,null,null,mise upgrade just,mise use -g just@1.58.0",
+      "  mise,just,true,1.58.0,null,null,false,mise upgrade just,mise use -g just@1.58.0",
     );
   });
 
@@ -294,10 +298,10 @@ exit 1`,
     const missing = await runCli(["status", "--surface", "mise"], bare.env());
     expect(missing.code).toBe(0);
     expect(missing.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(missing.stdout).toContain(
-      "  mise,mise,false,null,null,null,null,null",
+      "  mise,mise,false,null,null,null,null,null,null",
     );
   });
 
@@ -320,7 +324,7 @@ exit 1`,
     expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
     expect(result.stdout).toContain("mise,mise,mise ls --json failed (exit 3)");
     expect(result.stdout).toContain(
-      "  mise,mise,true,2026.8.8,null,null,null,null",
+      "  mise,mise,true,2026.8.8,null,null,null,null,null",
     );
   });
 });
@@ -332,10 +336,10 @@ describe("cargo surface", () => {
     const result = await runCli(["status", "--surface", "cargo"], bare.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  cargo,cargo,false,null,null,null,null,null",
+      "  cargo,cargo,false,null,null,null,null,null,null",
     );
   });
 
@@ -360,7 +364,7 @@ exit 1`,
       "cargo,cargo,cargo install --list failed (exit 3)",
     );
     expect(result.stdout).toContain(
-      "  cargo,cargo,true,1.89.0,null,null,null,null",
+      "  cargo,cargo,true,1.89.0,null,null,null,null,null",
     );
   });
 });
@@ -393,7 +397,7 @@ exit 1`,
     expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
     expect(result.stdout).toContain("bun,bun,bun pm ls -g failed (exit 1)");
     expect(result.stdout).toContain(
-      "  bun,bun,true,1.3.14,null,null,null,null",
+      "  bun,bun,true,1.3.14,null,null,null,null,null",
     );
   });
 });
@@ -424,7 +428,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "gh"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  gh,dash,true,v1.1.0,null,null,gh extension upgrade dash,null",
+      "  gh,dash,true,v1.1.0,null,null,false,gh extension upgrade dash,null",
     );
   });
 
@@ -457,7 +461,7 @@ describe("skills surface", () => {
     const result = await runCli(["status", "--surface", "skills"], bare.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  skills,skills,false,null,null,null,null,null",
+      "  skills,skills,false,null,null,null,null,null,null",
     );
   });
 
@@ -477,10 +481,10 @@ exit 1`,
     const result = await runCli(["status", "--surface", "skills"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  skills,find-skills,true,null,null,null,npx -y skills update -g find-skills,null",
+      "  skills,find-skills,true,null,null,null,false,npx -y skills update -g find-skills,null",
     );
   });
 
@@ -501,7 +505,7 @@ exit 1`,
       "skills,skills,skills list -g failed (exit 1)",
     );
     expect(result.stdout).toContain(
-      "  skills,skills,true,null,null,null,null,null",
+      "  skills,skills,true,null,null,null,null,null,null",
     );
   });
 });
@@ -532,10 +536,10 @@ exit 1`,
     const result = await runCli(["status", "--surface", "fnm"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  fnm,node,false,null,null,null,null,null",
+      "  fnm,node,false,null,null,null,null,null,null",
     );
   });
 
@@ -557,7 +561,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "fnm"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  fnm,node,true,v24.18.0,v24.21.0,minor,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
+      "  fnm,node,true,v24.18.0,v24.21.0,minor,false,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
     );
   });
 
@@ -578,7 +582,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "fnm"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  fnm,node,true,v25.2.0,v24.21.0,none,null,fnm default v25.2.0",
+      "  fnm,node,true,v25.2.0,v24.21.0,none,null,null,fnm default v25.2.0",
     );
   });
 
@@ -599,7 +603,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "fnm"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  fnm,node,true,v24.18.0,null,null,null,fnm default v24.18.0",
+      "  fnm,node,true,v24.18.0,null,null,null,null,fnm default v24.18.0",
     );
   });
 });
@@ -654,7 +658,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "apt"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  apt,reboot-required,true,null,null,null,null,null",
+      "  apt,reboot-required,true,null,null,null,null,null,null",
     );
   });
 
@@ -672,7 +676,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "apt"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      '  apt,vim,true,"1:9.1-1","2:1.0-1",major,sudo apt-get update && sudo apt-get upgrade,"sudo apt-get install vim=1:9.1-1"',
+      '  apt,vim,true,"1:9.1-1","2:1.0-1",major,false,sudo apt-get update && sudo apt-get upgrade,"sudo apt-get install vim=1:9.1-1"',
     );
   });
 
@@ -690,7 +694,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "apt"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  apt,ripgrep,true,null,15.0.0,null,sudo apt-get update && sudo apt-get upgrade,null",
+      "  apt,ripgrep,true,null,15.0.0,null,false,sudo apt-get update && sudo apt-get upgrade,null",
     );
   });
 });
@@ -790,7 +794,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "npm"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  npm,no-such-tool,false,null,null,null,null,null",
+      "  npm,no-such-tool,false,null,null,null,null,null,null",
     );
   });
 });
@@ -806,15 +810,15 @@ describe("agent tooling surfaces", () => {
       "claude,claude,claude settings.json is not valid JSON",
     );
     expect(result.stdout).toContain(
-      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+      "  claude,claude,true,2.1.270,null,null,false,claude update,claude install 2.1.270",
     );
     // The enabled list is unreadable, so no plugin row is claimed; the
     // marketplaces come from their own file and survive.
     expect(result.stdout).toContain(
-      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[3]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  claude,claude-plugins-official,true,null,null,null,claude plugin marketplace update claude-plugins-official,null",
+      "  claude,claude-plugins-official,true,null,null,null,false,claude plugin marketplace update claude-plugins-official,null",
     );
     expect(result.stdout).not.toContain("gopls-lsp");
   });
@@ -828,7 +832,7 @@ describe("agent tooling surfaces", () => {
       "claude,claude,claude installed_plugins.json is not valid JSON",
     );
     expect(result.stdout).toContain(
-      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[3]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).not.toContain("gopls-lsp");
     expect(result.stdout).not.toContain("ghost-plugin");
@@ -842,10 +846,10 @@ describe("agent tooling surfaces", () => {
     const result = await runCli(["status", "--surface", "claude"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(result.stdout).toContain(
-      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+      "  claude,claude,true,2.1.270,null,null,false,claude update,claude install 2.1.270",
     );
   });
 
@@ -862,7 +866,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "codex"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  codex,codex,true,0.154.0,null,null,codex update,null",
+      "  codex,codex,true,0.154.0,null,null,false,codex update,null",
     );
   });
 
@@ -885,7 +889,7 @@ exit 1`,
     expect(failed.stdout).toContain("errors[1]{surface,tool,detail}:");
     expect(failed.stdout).toContain("pi,pi,pi list failed (exit 3)");
     expect(failed.stdout).toContain(
-      "  pi,pi,true,0.85.1,null,null,pi update self,null",
+      "  pi,pi,true,0.85.1,null,null,false,pi update self,null",
     );
 
     const empty = createEnv();
@@ -907,10 +911,10 @@ exit 1`,
     );
     expect(emptyResult.code).toBe(0);
     expect(emptyResult.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(emptyResult.stdout).toContain(
-      "  pi,pi,true,0.85.1,null,null,pi update self,null",
+      "  pi,pi,true,0.85.1,null,null,false,pi update self,null",
     );
   });
 
@@ -927,10 +931,10 @@ exit 1`,
     const missing = await runCli(["status", "--surface", "herdr"], bare.env());
     expect(missing.code).toBe(0);
     expect(missing.stdout).toContain(
-      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[1]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     expect(missing.stdout).toContain(
-      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+      "  herdr,herdr,true,0.9.0,null,null,false,herdr update,null",
     );
 
     const broken = createEnv();
@@ -953,7 +957,7 @@ exit 1`,
       "herdr,herdr,herdr plugins.json is not valid JSON",
     );
     expect(brokenResult.stdout).toContain(
-      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+      "  herdr,herdr,true,0.9.0,null,null,false,herdr update,null",
     );
   });
 
@@ -965,7 +969,7 @@ exit 1`,
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[6]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[6]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     for (const tool of [
       "claude",
@@ -1009,7 +1013,7 @@ exit 1`,
       "A new version of no-mistakes is available: 1.72.0 -> 1.73.0",
     );
     expect(result.stdout).toContain(
-      "  no-mistakes,no-mistakes,true,1.72.0,null,null,no-mistakes update,null",
+      "  no-mistakes,no-mistakes,true,1.72.0,null,null,false,no-mistakes update,null",
     );
   });
 
@@ -1064,7 +1068,7 @@ describe("status --json", () => {
       skew?: unknown;
       announce?: unknown;
     };
-    expect(model.schemaVersion).toBe(1);
+    expect(model.schemaVersion).toBe(2);
     expect(typeof model.generatedAt).toBe("string");
     expect(model.tools).toHaveLength(39);
     const typescript = model.tools.find((row) => row.tool === "typescript");
@@ -1075,6 +1079,7 @@ describe("status --json", () => {
       version: "5.6.3",
       latest: "5.7.2",
       tier: "minor",
+      in_use: false,
       apply: "npm install -g typescript@latest",
       pin: "npm install -g typescript@5.6.3",
     });
@@ -1111,6 +1116,7 @@ describe("status --json", () => {
       tool: "gopls-lsp@claude-plugins-official",
       installed: true,
       version: "1.0.0",
+      in_use: false,
       apply: "claude plugin update gopls-lsp@claude-plugins-official",
     });
     const annotate = model.tools.find(
@@ -1205,7 +1211,7 @@ describe("usage errors", () => {
       "error: Unknown flag `--bogus` for `status`",
     );
     expect(result.stdout).toContain(
-      "Valid flags for `status`: --json, --surface <id[,id...]>, --config <path> (--help always allowed)",
+      "Valid flags for `status`: --json, --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path> (--help always allowed)",
     );
   });
 
@@ -1241,11 +1247,13 @@ describe("usage errors", () => {
     expect(result.stdout).toContain("announce_pattern");
   });
 
-  it("apply is not a command in this build", async () => {
+  it("apply with no selection is a usage error naming both shapes", async () => {
     const fake = stdEnv();
     const result = await runCli(["apply"], fake.env());
     expect(result.code).toBe(2);
-    expect(result.stdout).toContain("Unknown command: apply");
+    expect(result.stdout).toContain(
+      "Name a surface (`upkeep-axi apply npm`) or pass `--all --tier <patch|minor|major>`",
+    );
   });
 
   it("the built-in update refuses: upkeep-axi is not published to npm", async () => {

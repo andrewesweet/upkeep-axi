@@ -28,6 +28,7 @@ export interface FakeEnv {
   root: string;
   binDir: string;
   xdgDir: string;
+  xdgStateDir: string;
   configPath: string;
   writeFake(name: string, body: string): void;
   writeFakeIn(dir: string, name: string, body: string): void;
@@ -49,6 +50,8 @@ export function createEnv(): FakeEnv {
   mkdirSync(binDir);
   const xdgDir = join(root, "xdg");
   mkdirSync(xdgDir);
+  const xdgStateDir = join(root, "xdg-state");
+  mkdirSync(xdgStateDir);
   const configPath = join(xdgDir, "upkeep-axi", "config.json");
   const writeFakeIn = (dir: string, name: string, body: string) => {
     mkdirSync(dir, { recursive: true });
@@ -70,6 +73,7 @@ export function createEnv(): FakeEnv {
     root,
     binDir,
     xdgDir,
+    xdgStateDir,
     configPath,
     writeFake: (name, body) => writeFakeIn(binDir, name, body),
     writeFakeIn,
@@ -83,6 +87,7 @@ export function createEnv(): FakeEnv {
       PATH: binDir,
       HOME: root,
       XDG_CONFIG_HOME: xdgDir,
+      XDG_STATE_HOME: xdgStateDir,
       ...extra,
     }),
   };
@@ -129,10 +134,16 @@ export function runCli(
  * construction.
  */
 export function installStandardFakes(env: FakeEnv): void {
+  // The npm fake keeps applied installs in a state file under the fake HOME:
+  // `install -g name@latest` bumps the version `ls -g` reports, so an apply
+  // can be observed end to end. Shell builtins only, as everywhere; the
+  // version is spliced into a single-quoted JSON literal.
   env.writeFake(
     "npm",
     `if [ "$1" = "ls" ]; then
-  echo '{"dependencies":{"left-pad":{"version":"1.3.0"},"esbuild":{"version":"0.20.0"},"typescript":{"version":"5.6.3"},"unparsable":{"version":"dev"},"gone":{"version":"2.0.0"}}}'
+  ts=5.6.3
+  if test -f "$HOME/.npm-state/typescript"; then read ts < "$HOME/.npm-state/typescript"; fi
+  echo '{"dependencies":{"left-pad":{"version":"1.3.0"},"esbuild":{"version":"0.20.0"},"typescript":{"version":"'"$ts"'"},"unparsable":{"version":"dev"},"gone":{"version":"2.0.0"}}}'
   exit 0
 fi
 if [ "$1" = "view" ]; then
@@ -146,8 +157,18 @@ if [ "$1" = "view" ]; then
   esac
   exit 0
 fi
+if [ "$1" = "install" ] && [ "$2" = "-g" ]; then
+  name=\${3%@latest}
+  case "$name" in
+    typescript) echo "5.7.2" > "$HOME/.npm-state/typescript" ;;
+  esac
+  exit 0
+fi
 exit 1`,
   );
+  // The state directory the install branch writes into (mkdir is not a
+  // shell builtin, so the fake cannot create it itself).
+  env.writeFakeFile(".npm-state/.keep", "");
   env.writeFake(
     "mise",
     `if [ "$1" = "ls" ]; then
@@ -391,6 +412,10 @@ exit 1`,
   echo "herdr 0.9.0"
   exit 0
 fi
+if [ "$1" = "agent" ] && [ "$2" = "list" ]; then
+  echo '{"id":"cli:agent:list","result":{"agents":[],"type":"agent_list"}}'
+  exit 0
+fi
 exit 1`,
   );
   env.writeFakeFile(
@@ -413,6 +438,13 @@ exit 1`,
 fi
 if [ "$1" = "--help" ]; then
   echo "A new version of no-mistakes is available: 1.72.0 -> 1.73.0"
+  exit 0
+fi
+if [ "$1" = "runs" ]; then
+  exit 0
+fi
+if [ "$1" = "update" ]; then
+  echo "no-mistakes fake updated"
   exit 0
 fi
 exit 1`,

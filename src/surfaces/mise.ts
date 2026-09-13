@@ -1,8 +1,13 @@
 import { tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -28,6 +33,22 @@ interface MiseOutdatedEntry {
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("mise", ctx.env)[0];
+}
+
+/** The vendor's own updater: `mise upgrade <tool>`, or mise's self-updater. */
+function delegateFor(
+  ctx: SurfaceContext,
+  tool: string,
+): ApplyDelegate | undefined {
+  const mise = managerPath(ctx);
+  if (!mise) return undefined;
+  return {
+    steps: [
+      tool === SURFACE_ID
+        ? { file: mise, args: ["self-update"] }
+        : { file: mise, args: ["upgrade", tool] },
+    ],
+  };
 }
 
 /**
@@ -108,7 +129,7 @@ export const miseSurface: Surface = {
         version,
         latest,
         tier: tierBetween(version, latest),
-        applyCommand: `mise upgrade ${tool}`,
+        applyCommand: applyCommandText(delegateFor(ctx, tool)!),
         pinCommand: version ? `mise use -g ${tool}@${version}` : undefined,
       });
     }
@@ -118,18 +139,14 @@ export const miseSurface: Surface = {
         tool: SURFACE_ID,
         installed: true,
         version: selfVersion,
-        applyCommand: "mise self-update",
+        applyCommand: applyCommandText(delegateFor(ctx, SURFACE_ID)!),
         pinCommand: selfVersion ? `mise self-update ${selfVersion}` : undefined,
       });
     }
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 };

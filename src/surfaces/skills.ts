@@ -1,7 +1,12 @@
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
 } from "./shared.js";
@@ -15,6 +20,17 @@ function managerPath(ctx: SurfaceContext): string | undefined {
 
 function npxPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("npx", ctx.env)[0];
+}
+
+/** The vendor's own updater for one skill, spelled the way a copy would run. */
+function delegateFor(
+  ctx: SurfaceContext,
+  inv: SkillsInvocation,
+  name: string,
+): ApplyDelegate {
+  return {
+    steps: [{ file: inv.file, args: [...inv.prefix, "update", "-g", name] }],
+  };
 }
 
 /**
@@ -100,16 +116,14 @@ export const skillsSurface: Surface = {
       surface: SURFACE_ID,
       tool: name,
       installed: true,
-      applyCommand: `${inv.command} update -g ${name}`,
+      applyCommand: applyCommandText(delegateFor(ctx, inv, name)),
     }));
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    const inv = invocation(ctx);
+    if (!inv || !row.applyCommand) return undefined;
+    return delegateFor(ctx, inv, row.tool);
   },
 };

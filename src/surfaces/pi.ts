@@ -1,13 +1,35 @@
 import { extractVersion } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
-import { deferredMutation, enrichWithConfig } from "./shared.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
+import { applyCommandText, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "pi";
 const LIST_TIMEOUT_MS = 15_000;
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("pi", ctx.env)[0];
+}
+
+/** The vendor's own updater: `pi update self` for pi, the source for a package. */
+function delegateFor(
+  ctx: SurfaceContext,
+  tool: string,
+): ApplyDelegate | undefined {
+  const pi = managerPath(ctx);
+  if (!pi) return undefined;
+  return {
+    steps: [
+      {
+        file: pi,
+        args: ["update", tool === SURFACE_ID ? "self" : tool],
+      },
+    ],
+  };
 }
 
 /**
@@ -56,7 +78,7 @@ export const piSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "pi update self",
+      applyCommand: applyCommandText(delegateFor(ctx, SURFACE_ID)!),
     };
     if (list.code !== 0 && sources.length === 0) {
       piRow.error = `pi list failed (exit ${list.code}${list.timedOut ? ", timed out" : ""})`;
@@ -68,17 +90,16 @@ export const piSurface: Surface = {
         surface: SURFACE_ID,
         tool: source,
         installed: true,
-        applyCommand: `pi update ${source}`,
+        applyCommand: applyCommandText(delegateFor(ctx, source)!),
       });
     }
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
-  },
+  /** Updating pi or its packages replaces files the running binary reads. */
+  replacedExecutables: () => [SURFACE_ID],
 };

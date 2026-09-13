@@ -1,12 +1,24 @@
 import { extractVersion } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
-import { deferredMutation, enrichWithConfig } from "./shared.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
+import { applyCommandText, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "no-mistakes";
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("no-mistakes", ctx.env)[0];
+}
+
+/** The vendor's own updater: `no-mistakes update`. */
+function delegateFor(ctx: SurfaceContext): ApplyDelegate | undefined {
+  const nomistakes = managerPath(ctx);
+  if (!nomistakes) return undefined;
+  return { steps: [{ file: nomistakes, args: ["update"] }] };
 }
 
 /**
@@ -36,16 +48,12 @@ export const noMistakesSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "no-mistakes update",
+      applyCommand: applyCommandText(delegateFor(ctx)!),
     };
     return enrichWithConfig(ctx, SURFACE_ID, [row]);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx) {
+    return delegateFor(ctx);
   },
 };

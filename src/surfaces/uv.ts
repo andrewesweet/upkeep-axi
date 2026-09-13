@@ -1,8 +1,13 @@
 import { tierBetween } from "../semver.js";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerErrorRow,
   managerVersion,
@@ -18,6 +23,16 @@ interface UvTool {
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("uv", ctx.env)[0];
+}
+
+/** The vendor's own updater for one tool, fixed argv. */
+function delegateFor(
+  ctx: SurfaceContext,
+  name: string,
+): ApplyDelegate | undefined {
+  const uv = managerPath(ctx);
+  if (!uv) return undefined;
+  return { steps: [{ file: uv, args: ["tool", "upgrade", name] }] };
 }
 
 /** Parse `uv tool list` lines: `name v1.2.3`, skipping the `- bin` lines. */
@@ -92,18 +107,14 @@ export const uvSurface: Surface = {
         version: tool.version,
         latest,
         tier: tierBetween(tool.version, latest),
-        applyCommand: `uv tool upgrade ${tool.name}`,
+        applyCommand: applyCommandText(delegateFor(ctx, tool.name)!),
         pinCommand: `uv tool install ${tool.name}==${tool.version}`,
       };
     });
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 };

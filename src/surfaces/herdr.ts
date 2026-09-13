@@ -1,9 +1,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathCandidates } from "../exec.js";
-import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
+import type {
+  ApplyDelegate,
+  Surface,
+  SurfaceContext,
+  ToolStatus,
+} from "../types.js";
 import {
-  deferredMutation,
+  applyCommandText,
   enrichWithConfig,
   managerVersion,
   readJsonFile,
@@ -19,6 +24,16 @@ interface HerdrPlugin {
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("herdr", ctx.env)[0];
+}
+
+/** Herdr's own updater; plugins have no updater to delegate to. */
+function delegateFor(
+  ctx: SurfaceContext,
+  tool: string,
+): ApplyDelegate | undefined {
+  const herdr = managerPath(ctx);
+  if (!herdr || tool !== SURFACE_ID) return undefined;
+  return { steps: [{ file: herdr, args: ["update"] }] };
 }
 
 /** Herdr keeps its state under $XDG_CONFIG_HOME/herdr (default ~/.config). */
@@ -54,7 +69,7 @@ export const herdrSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: "herdr update",
+      applyCommand: applyCommandText(delegateFor(ctx, SURFACE_ID)!),
     };
     const parsed = readJsonFile<HerdrPlugin[]>(
       join(herdrConfigDir(ctx.env), "plugins.json"),
@@ -84,11 +99,7 @@ export const herdrSurface: Surface = {
     return enrichWithConfig(ctx, SURFACE_ID, rows);
   },
 
-  async apply() {
-    deferredMutation(SURFACE_ID, "apply");
-  },
-
-  async pin() {
-    deferredMutation(SURFACE_ID, "pin");
+  apply(ctx, row) {
+    return delegateFor(ctx, row.tool);
   },
 };

@@ -1,8 +1,10 @@
 import { homedir } from "node:os";
 import { encode } from "@toon-format/toon";
+import type { ApplyReport } from "./apply.js";
+import type { JournalRecord } from "./journal.js";
 import type { ToolStatus } from "./types.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Collapse the user's home directory to `~` for display. */
 function collapseHome(path: string, homeDir: string = homedir()): string {
@@ -23,6 +25,7 @@ interface ToolRow {
   version?: string;
   latest?: string;
   tier?: string;
+  in_use?: boolean;
   apply?: string;
   pin?: string;
 }
@@ -35,6 +38,7 @@ function toToolRow(row: ToolStatus): ToolRow {
     version: row.version,
     latest: row.latest,
     tier: row.tier,
+    in_use: row.inUse,
     apply: row.applyCommand,
     pin: row.pinCommand,
   };
@@ -62,6 +66,12 @@ interface ErrorRow {
   detail: string;
 }
 
+interface InUseRow {
+  surface: string;
+  tool: string;
+  detail: string;
+}
+
 interface StatusModel {
   generatedAt: string;
   schemaVersion: number;
@@ -69,6 +79,7 @@ interface StatusModel {
   errors?: ErrorRow[];
   skew?: SkewRow[];
   announce?: AnnounceRow[];
+  in_use?: InUseRow[];
 }
 
 /**
@@ -110,6 +121,14 @@ export function statusModel(report: StatusReport): StatusModel {
       claim: row.announcement as string,
     }));
   }
+  const inUse = report.tools.filter((row) => row.inUseDetail);
+  if (inUse.length > 0) {
+    model.in_use = inUse.map((row) => ({
+      surface: row.surface,
+      tool: row.tool,
+      detail: row.inUseDetail as string,
+    }));
+  }
   return model;
 }
 
@@ -118,11 +137,17 @@ const HELP_HINTS = [
   "Run `upkeep-axi status --json` for the normalized model",
 ];
 
+interface ToonOptions {
+  /** Help lines used when the report carries no rows. */
+  emptyHelp?: string[];
+}
+
 /** Default output: compact TOON, decision-shaped, with a help block. */
 export function renderStatusToon(
   report: StatusReport,
   binPath: string,
   description: string,
+  options: ToonOptions = {},
 ): string {
   const body: Record<string, unknown> = {
     bin: collapseHome(binPath),
@@ -132,10 +157,10 @@ export function renderStatusToon(
   const help =
     report.tools.length > 0
       ? HELP_HINTS
-      : [
+      : (options.emptyHelp ?? [
           "Run `upkeep-axi status --surface <id>` to scope to one surface",
           "Every configured surface is missing or disabled; check the config file",
-        ];
+        ]);
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)
     .join("\n")}`;
@@ -144,4 +169,135 @@ export function renderStatusToon(
 /** `--json` emits the normalized model with no renames and no re-nesting. */
 export function renderStatusJson(report: StatusReport): string {
   return JSON.stringify(statusModel(report), null, 2);
+}
+
+const PLAN_HELP = [
+  "Run `upkeep-axi apply ... --execute` to run this plan; nothing has run yet",
+  "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+];
+
+const EXECUTED_HELP = [
+  "Run `upkeep-axi journal` for the append-only record of what ran",
+  "Run `upkeep-axi status --since <record id>` to report only what changed",
+];
+
+/** The apply report: the plan, what was refused, and with --execute what ran. */
+export function applyModel(report: ApplyReport): Record<string, unknown> {
+  const model: Record<string, unknown> = {
+    generatedAt: report.generatedAt,
+    schemaVersion: report.schemaVersion,
+    mode: report.mode,
+    plan: report.plan.map((row) => ({
+      surface: row.surface,
+      tool: row.tool,
+      before: row.before,
+      latest: row.latest,
+      tier: row.tier,
+      command: row.command,
+      pin: row.pin,
+    })),
+  };
+  if (report.skipped && report.skipped.length > 0) {
+    model.skipped = report.skipped;
+  }
+  if (report.results) {
+    model.results = report.results.map((row) => ({
+      surface: row.surface,
+      tool: row.tool,
+      command: row.command,
+      outcome: row.outcome,
+      exit: row.exit,
+      duration_ms: row.duration_ms,
+      before: row.before,
+      after: row.after,
+      pin: row.pin,
+    }));
+  }
+  if (report.output && report.output.length > 0) {
+    model.output = report.output;
+  }
+  return model;
+}
+
+export function renderApplyToon(
+  report: ApplyReport,
+  binPath: string,
+  description: string,
+): string {
+  const body = {
+    bin: collapseHome(binPath),
+    description,
+    ...applyModel(report),
+  };
+  const help =
+    report.mode === "executed"
+      ? EXECUTED_HELP
+      : report.plan.length > 0
+        ? PLAN_HELP
+        : [
+            "Run `upkeep-axi status` to see every surface and its apply commands",
+          ];
+  return `${encode(body)}\nhelp[${help.length}]:\n${help
+    .map((hint) => `  ${hint}`)
+    .join("\n")}`;
+}
+
+export function renderApplyJson(report: ApplyReport): string {
+  return JSON.stringify(applyModel(report), null, 2);
+}
+
+export interface JournalReport {
+  generatedAt: string;
+  schemaVersion: number;
+  records: JournalRecord[];
+}
+
+export function renderJournalToon(
+  report: JournalReport,
+  binPath: string,
+  description: string,
+): string {
+  const body = {
+    bin: collapseHome(binPath),
+    description,
+    generatedAt: report.generatedAt,
+    schemaVersion: report.schemaVersion,
+    records: report.records.map((record) => ({
+      id: record.id,
+      surface: record.surface,
+      tool: record.tool,
+      before: record.before,
+      after: record.after,
+      tier: record.tier,
+      command: record.command,
+      exit: record.exit,
+      duration_ms: record.duration_ms,
+      pin: record.pin,
+      started_at: record.started_at,
+    })),
+  };
+  const help =
+    report.records.length > 0
+      ? [
+          "Run `upkeep-axi status --since <record id>` to report only what changed",
+        ]
+      : [
+          "The journal is empty: no apply has executed yet",
+          "Run `upkeep-axi apply <surface> --execute` to make the first record",
+        ];
+  return `${encode(body)}\nhelp[${help.length}]:\n${help
+    .map((hint) => `  ${hint}`)
+    .join("\n")}`;
+}
+
+export function renderJournalJson(report: JournalReport): string {
+  return JSON.stringify(
+    {
+      generatedAt: report.generatedAt,
+      schemaVersion: report.schemaVersion,
+      records: report.records,
+    },
+    null,
+    2,
+  );
 }
