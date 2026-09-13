@@ -83,6 +83,16 @@ function validateSurface(
   if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") {
     throw configError(`surfaces.${id}.enabled`, "must be a boolean", path);
   }
+  if (
+    entry.rebootRequiredPath !== undefined &&
+    !isNonEmptyString(entry.rebootRequiredPath)
+  ) {
+    throw configError(
+      `surfaces.${id}.rebootRequiredPath`,
+      "must be a non-empty string",
+      path,
+    );
+  }
   if (entry.tools !== undefined) {
     if (!Array.isArray(entry.tools)) {
       throw configError(`surfaces.${id}.tools`, "must be an array", path);

@@ -1,13 +1,19 @@
 import { AxiError } from "axi-sdk-js";
 import type { Surface } from "../types.js";
+import { aptSurface } from "./apt.js";
+import { bunSurface } from "./bun.js";
+import { cargoSurface } from "./cargo.js";
 import { claudeSurface } from "./claude.js";
 import { codexSurface } from "./codex.js";
+import { fnmSurface } from "./fnm.js";
+import { ghSurface } from "./gh.js";
 import { herdrSurface } from "./herdr.js";
 import { miseSurface } from "./mise.js";
 import { noMistakesSurface } from "./nomistakes.js";
 import { npmSurface } from "./npm.js";
 import { opencodeSurface } from "./opencode.js";
 import { piSurface } from "./pi.js";
+import { skillsSurface } from "./skills.js";
 import { uvSurface } from "./uv.js";
 
 /**
@@ -19,6 +25,12 @@ export const SURFACE_REGISTRY: Surface[] = [
   npmSurface,
   miseSurface,
   uvSurface,
+  cargoSurface,
+  bunSurface,
+  ghSurface,
+  skillsSurface,
+  fnmSurface,
+  aptSurface,
   claudeSurface,
   codexSurface,
   opencodeSurface,

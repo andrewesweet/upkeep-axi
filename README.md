@@ -48,19 +48,27 @@ The tool never runs as root and never publishes itself to npm; its built-in `upd
 
 ## Surfaces
 
-Version one ships nine status surfaces and runs on this WSL2 Ubuntu host only:
+Fifteen status surfaces have shipped so far (the remaining version-one surfaces from the spec follow in later tasks); the tool runs on this WSL2 Ubuntu host only:
 
-| id            | scope                                  | installed via                                            | available via                    |
-| ------------- | -------------------------------------- | -------------------------------------------------------- | -------------------------------- |
-| `npm`         | global npm packages                    | `npm ls -g --json`                                       | `npm view <pkg> version`         |
-| `mise`        | mise itself and managed tools          | `mise ls --json`                                         | `mise outdated --json`           |
-| `uv`          | uv-managed tools                       | `uv tool list`                                           | `uv tool list --outdated`        |
-| `claude`      | Claude Code, its plugins, marketplaces | `claude --version`, Claude state files                   | its own announcement             |
-| `codex`       | Codex CLI                              | `codex --version`                                        | `npm view @openai/codex version` |
-| `opencode`    | OpenCode                               | `opencode --version`                                     | its own announcement             |
-| `pi`          | Pi and its packages                    | `pi --version`, `pi list`                                | its own announcement             |
-| `herdr`       | Herdr and its plugins                  | `herdr --version`, `$XDG_CONFIG_HOME/herdr/plugins.json` | -                                |
-| `no-mistakes` | no-mistakes                            | `no-mistakes --version`                                  | its own announcement             |
+| id            | scope                                  | installed via                                            | available via                                                                             |
+| ------------- | -------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `npm`         | global npm packages                    | `npm ls -g --json`                                       | `npm view <pkg> version`                                                                  |
+| `mise`        | mise itself and managed tools          | `mise ls --json`                                         | `mise outdated --json`                                                                    |
+| `uv`          | uv-managed tools                       | `uv tool list`                                           | `uv tool list --outdated`                                                                 |
+| `cargo`       | cargo-installed binaries               | `cargo install --list`                                   | `cargo search <crate> --limit 1`                                                          |
+| `bun`         | global bun packages                    | `bun pm ls -g`                                           | `bun pm view <pkg> version`                                                               |
+| `gh`          | gh itself and its extensions           | `gh --version`, `gh extension list`                      | `gh extension upgrade --all --dry-run`                                                    |
+| `skills`      | skills under `~/.agents/skills`        | `skills list -g` (or `npx -y skills`)                    | none exposed - installed only                                                             |
+| `fnm`         | fnm-managed node                       | `fnm list`                                               | `fnm ls-remote --lts`                                                                     |
+| `apt`         | upgradable packages, report-only       | `apt list --upgradable`                                  | the listing itself; apply is the exact `sudo apt-get update && sudo apt-get upgrade` text |
+| `claude`      | Claude Code, its plugins, marketplaces | `claude --version`, Claude state files                   | its own announcement                                                                      |
+| `codex`       | Codex CLI                              | `codex --version`                                        | `npm view @openai/codex version`                                                          |
+| `opencode`    | OpenCode                               | `opencode --version`                                     | its own announcement                                                                      |
+| `pi`          | Pi and its packages                    | `pi --version`, `pi list`                                | its own announcement                                                                      |
+| `herdr`       | Herdr and its plugins                  | `herdr --version`, `$XDG_CONFIG_HOME/herdr/plugins.json` | -                                                                                         |
+| `no-mistakes` | no-mistakes                            | `no-mistakes --version`                                  | its own announcement                                                                      |
+
+The apt surface also reports the reboot-required flag as a row (`reboot-required`, present or not); its path is the `rebootRequiredPath` surface option, default `/var/run/reboot-required`.
 
 Surfaces whose latest version lives only in the tool's own update announcement (claude, opencode, pi, no-mistakes) keep `latest` and `tier` absent unless a config entry wires the announcement probe; the announcement then carries the tool's own claim. Claude plugin versions are the ones Claude Code recorded in `plugins/installed_plugins.json`; enabled-but-not-installed plugins report `installed=false` (an unreadable install record yields no plugin rows); marketplaces report `claude plugin marketplace update <name>`. Herdr plugin rows are inventory only: herdr exposes no plugin update or pin command, so none is printed.
 
@@ -92,7 +100,8 @@ A missing default file means: every registry surface enabled, no per-tool entrie
         }
       ]
     },
-    "uv": { "enabled": false }
+    "uv": { "enabled": false },
+    "apt": { "rebootRequiredPath": "/var/run/reboot-required" }
   }
 }
 ```
@@ -102,6 +111,7 @@ A missing default file means: every registry surface enabled, no per-tool entrie
 - `version_args` - argv used to ask a copy of `command` its version; defaults to `["--version"]`.
 - `announce_pattern` / `announce_args` - run the tool with `announce_args`, match `announce_pattern`, and report the match as the tool's own claim.
 - `git` - accepted for watched-tools schema compatibility; consumed by a later surface.
+- `rebootRequiredPath` - apt surface only: path of the reboot-required flag; defaults to `/var/run/reboot-required`.
 
 A configured entry the manager does not know reports `installed=false`. A malformed config is a usage error, never silently ignored.
 

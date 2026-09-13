@@ -37,6 +37,8 @@ export interface SurfaceConfig {
   enabled?: boolean;
   /** Per-tool entries merged over the surface's discovered tools. */
   tools?: ToolConfig[];
+  /** apt only: where the reboot-required flag lives (default /var/run/reboot-required). */
+  rebootRequiredPath?: string;
 }
 
 export interface UpkeepConfig {
