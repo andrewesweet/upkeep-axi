@@ -114,9 +114,14 @@ export function runCli(
  * unknown latest), a not-installed mise entry, and uv's bin lines. Every
  * fake uses shell builtins only (echo/case/test) because the spawned CLI's
  * PATH contains nothing else - real vendor executables are unreachable by
- * construction.
+ * construction. The apt surface's reboot-required flag is pinned to an
+ * absent path so the suite stays deterministic on hosts that have one
+ * pending; the set-reboot test points it at a real file.
  */
 export function installStandardFakes(env: FakeEnv): void {
+  env.writeConfig({
+    surfaces: { apt: { rebootRequiredPath: `${env.root}/no-reboot-required` } },
+  });
   env.writeFake(
     "npm",
     `if [ "$1" = "ls" ]; then
@@ -168,6 +173,122 @@ if [ "$1" = "tool" ] && [ "$2" = "list" ] && [ "$3" = "--outdated" ]; then
 fi
 if [ "$1" = "--version" ]; then
   echo "uv 0.12.5"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "cargo",
+    `if [ "$1" = "install" ] && [ "$2" = "--list" ]; then
+  echo 'bacon v3.10.0:'
+  echo '    bacon'
+  echo 'fd-find v10.2.0:'
+  echo '    fd'
+  echo 'unsearchable v0.1.0:'
+  echo '    unsearchable'
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  case "$2" in
+    bacon) echo 'bacon = "3.12.4"    # Guard against missed breakfasts' ;;
+    fd-find) echo 'fd-find = "10.2.0"    # simple, fast and user-friendly alternative to find' ;;
+  esac
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "cargo 1.89.0 (8ceb2bf 2026-08-11)"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "bun",
+    `if [ "$1" = "pm" ] && [ "$2" = "ls" ]; then
+  echo '/root/.bun/install/global node_modules (42)'
+  echo '├── critique@0.1.140'
+  echo '└── stale@2.0.0'
+  exit 0
+fi
+if [ "$1" = "pm" ] && [ "$2" = "view" ]; then
+  case "$3" in
+    critique) echo "0.2.0" ;;
+    stale) echo "" ;;
+  esac
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "1.3.14"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "gh",
+    `if [ "$1" = "--version" ]; then
+  echo "gh version 2.97.0 (2026-07-31)"
+  echo "https://github.com/cli/cli/releases/tag/v2.97.0"
+  exit 0
+fi
+if [ "$1" = "extension" ] && [ "$2" = "list" ]; then
+  echo 'gh stack\tgithub/gh-stack\tv0.1.1'
+  echo 'gh dash\tdnorth98/gh-dash\tv1.1.0'
+  echo 'gh pinned\tmattn/pinned\tv0.3.0'
+  exit 0
+fi
+if [ "$1" = "extension" ] && [ "$2" = "upgrade" ]; then
+  echo '[stack]: already up to date'
+  echo '[dash]: would have upgraded from v1.1.0 to v1.2.0'
+  echo '[pinned]: pinned extensions can not be upgraded'
+  exit 0
+fi
+exit 1`,
+  );
+  // The skills fake styles its rows with ANSI escapes the way the real CLI
+  // does; /bin/sh echo interprets \033, so the parse path is exercised.
+  env.writeFake(
+    "skills",
+    `if [ "$1" = "list" ] && [ "$2" = "-g" ]; then
+  echo '\\033[1mGlobal Skills\\033[0m'
+  echo ''
+  echo '\\033[36mcaveman\\033[0m                           \\033[2m~/.agents/skills/caveman\\033[0m'
+  echo '  \\033[2mAgents:\\033[0m Claude Code  \\033[2mSource:\\033[0m mattpocock/skills'
+  echo '\\033[36mhandoff\\033[0m                           \\033[2m~/.agents/skills/handoff\\033[0m'
+  echo '  \\033[2mAgents:\\033[0m Claude Code  \\033[2mSource:\\033[0m local'
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "fnm",
+    `if [ "$1" = "list" ]; then
+  echo '* v24.18.0 default'
+  echo '* v22.20.0'
+  echo '* system'
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  echo 'v24.19.0 (Krypton)'
+  echo 'v24.20.0 (Krypton)'
+  echo 'v24.21.0 (Krypton)'
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "fnm 1.38.2"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "apt",
+    `if [ "$1" = "list" ] && [ "$2" = "--upgradable" ]; then
+  echo "WARNING: apt does not have a stable CLI interface." >&2
+  echo 'Listing...'
+  echo 'openssl/jammy-updates,jammy-security 3.0.2-0ubuntu1.15 amd64 [upgradable from: 3.0.2-0ubuntu1.14]'
+  echo 'ripgrep/nowhere 15.0.0 amd64 [upgradable from: 14.1.1]'
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "apt 2.8.3 (amd64)"
   exit 0
 fi
 exit 1`,

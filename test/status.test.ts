@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,9 +29,10 @@ describe("status (TOON default)", () => {
     );
     expect(out).toContain("generatedAt: ");
     // One row per tool, fixed columns:
-    // 5 npm + 3 mise + 2 uv + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes.
+    // 5 npm + 3 mise + 2 uv + 3 cargo + 2 bun + 4 gh + 2 skills + 1 fnm + 3 apt
+    // + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes.
     expect(out).toContain(
-      "tools[24]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[39]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     // npm rows: tier none, minor, unparseable-as-major, and unknown latest.
     expect(out).toContain(
@@ -65,11 +67,56 @@ describe("status (TOON default)", () => {
     expect(out).toContain(
       "  uv,zizmor,true,1.24.1,null,null,uv tool upgrade zizmor,uv tool install zizmor==1.24.1",
     );
+    // cargo crates: searched latest, current, and a crate the search does
+    // not name (latest and tier stay absent); pin drops the `v` prefix.
     expect(out).toContain(
-      "  mise,mise,true,2026.8.8,null,null,mise self-update,mise self-update 2026.8.8",
+      "  cargo,bacon,true,3.10.0,3.12.4,minor,cargo install bacon,cargo install bacon --version 3.10.0",
     );
     expect(out).toContain(
-      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0",
+      "  cargo,fd-find,true,10.2.0,10.2.0,none,cargo install fd-find,cargo install fd-find --version 10.2.0",
+    );
+    expect(out).toContain(
+      "  cargo,unsearchable,true,0.1.0,null,null,cargo install unsearchable,cargo install unsearchable --version 0.1.0",
+    );
+    // bun globals: header line skipped, registry check per package.
+    expect(out).toContain(
+      "  bun,critique,true,0.1.140,0.2.0,minor,bun install -g critique@latest,bun install -g critique@0.1.140",
+    );
+    expect(out).toContain(
+      "  bun,stale,true,2.0.0,null,null,bun install -g stale@latest,bun install -g stale@2.0.0",
+    );
+    // gh itself has no self-update check; extensions read the dry-run: the
+    // up-to-date one keeps latest absent, the pinned one carries no apply.
+    expect(out).toContain("  gh,gh,true,2.97.0,null,null,null,null");
+    expect(out).toContain(
+      "  gh,stack,true,v0.1.1,null,null,gh extension upgrade stack,null",
+    );
+    expect(out).toContain(
+      "  gh,dash,true,v1.1.0,v1.2.0,minor,gh extension upgrade dash,null",
+    );
+    expect(out).toContain("  gh,pinned,true,v0.3.0,null,null,null,null");
+    // skills report installed only: the CLI exposes no update check.
+    expect(out).toContain(
+      "  skills,caveman,true,null,null,null,skills update -g caveman,null",
+    );
+    expect(out).toContain(
+      "  skills,handoff,true,null,null,null,skills update -g handoff,null",
+    );
+    // fnm collapses to the default-alias version; installing alone does not
+    // update, so the apply names both acts.
+    expect(out).toContain(
+      "  fnm,node,true,v24.18.0,v24.21.0,minor,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
+    );
+    // apt rows are report-only with the exact sudo commands; the
+    // revision-only bump tiers none while the major is a major.
+    expect(out).toContain(
+      "  apt,openssl,true,3.0.2-0ubuntu1.14,3.0.2-0ubuntu1.15,none,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install openssl=3.0.2-0ubuntu1.14",
+    );
+    expect(out).toContain(
+      "  apt,ripgrep,true,14.1.1,15.0.0,major,sudo apt-get update && sudo apt-get upgrade,sudo apt-get install ripgrep=14.1.1",
+    );
+    expect(out).toContain(
+      "  apt,reboot-required,false,null,null,null,null,null",
     );
     // Claude Code itself pins via its native installer; plugin versions come
     // from the plugin manifest or the installer's record; enabled but not
@@ -117,11 +164,16 @@ describe("status (TOON default)", () => {
     expect(out).toContain(
       "  no-mistakes,no-mistakes,true,1.72.0,null,null,no-mistakes update,null",
     );
-    // Registry order: all npm rows before mise rows before uv rows, and the
-    // agent tooling surfaces after them in declaration order.
+    // Registry order: every surface keeps its declaration position.
     expect(out.indexOf("  npm,")).toBeLessThan(out.indexOf("  mise,"));
     expect(out.indexOf("  mise,")).toBeLessThan(out.indexOf("  uv,"));
-    expect(out.indexOf("  uv,")).toBeLessThan(out.indexOf("  claude,"));
+    expect(out.indexOf("  uv,")).toBeLessThan(out.indexOf("  cargo,"));
+    expect(out.indexOf("  cargo,")).toBeLessThan(out.indexOf("  bun,"));
+    expect(out.indexOf("  bun,")).toBeLessThan(out.indexOf("  gh,"));
+    expect(out.indexOf("  gh,")).toBeLessThan(out.indexOf("  skills,"));
+    expect(out.indexOf("  skills,")).toBeLessThan(out.indexOf("  fnm,"));
+    expect(out.indexOf("  fnm,")).toBeLessThan(out.indexOf("  apt,"));
+    expect(out.indexOf("  apt,")).toBeLessThan(out.indexOf("  claude,"));
     expect(out.indexOf("  claude,")).toBeLessThan(out.indexOf("  codex,"));
     expect(out.indexOf("  codex,")).toBeLessThan(out.indexOf("  opencode,"));
     expect(out.indexOf("  opencode,")).toBeLessThan(out.indexOf("  pi,"));
@@ -143,7 +195,7 @@ describe("status (TOON default)", () => {
     const result = await runCli([], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[24]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[39]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
   });
 
@@ -154,7 +206,7 @@ describe("status (TOON default)", () => {
     expect(all.code).toBe(0);
     expect(all.stdout).not.toContain("  uv,");
     expect(all.stdout).toContain(
-      "tools[22]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[37]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     const scoped = await runCli(
       ["status", "--surface", "npm,mise"],
@@ -269,6 +321,337 @@ exit 1`,
     expect(result.stdout).toContain("mise,mise,mise ls --json failed (exit 3)");
     expect(result.stdout).toContain(
       "  mise,mise,true,2026.8.8,null,null,null,null",
+    );
+  });
+});
+
+describe("cargo surface", () => {
+  it("reports a missing cargo as one not-installed row", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "cargo"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  cargo,cargo,false,null,null,null,null,null",
+    );
+  });
+
+  it("reports a failed crate inventory verbatim in the errors block", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "cargo",
+      `if [ "$1" = "install" ]; then
+  echo "cargo fake: index exploded" >&2
+  exit 3
+fi
+if [ "$1" = "--version" ]; then
+  echo "cargo 1.89.0"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "cargo"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain(
+      "cargo,cargo,cargo install --list failed (exit 3)",
+    );
+    expect(result.stdout).toContain(
+      "  cargo,cargo,true,1.89.0,null,null,null,null",
+    );
+  });
+});
+
+describe("bun surface", () => {
+  it("reports a missing bun as one not-installed row", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "bun"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  bun,bun,false,null,null,null,null,null");
+  });
+
+  it("reports a failed global listing verbatim in the errors block", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "bun",
+      `if [ "$1" = "pm" ] && [ "$2" = "ls" ]; then
+  echo "bun fake: store locked" >&2
+  exit 1
+fi
+if [ "$1" = "--version" ]; then
+  echo "1.3.14"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "bun"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain("bun,bun,bun pm ls -g failed (exit 1)");
+    expect(result.stdout).toContain(
+      "  bun,bun,true,1.3.14,null,null,null,null",
+    );
+  });
+});
+
+describe("gh surface", () => {
+  it("reports a missing gh as one not-installed row", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "gh"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  gh,gh,false,null,null,null,null,null");
+  });
+
+  it("keeps latest absent when the dry-run check is unavailable", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "gh",
+      `if [ "$1" = "--version" ]; then
+  echo "gh version 2.20.0"
+  exit 0
+fi
+if [ "$1" = "extension" ] && [ "$2" = "list" ]; then
+  echo 'gh dash\tdnorth98/gh-dash\tv1.1.0'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "gh"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  gh,dash,true,v1.1.0,null,null,gh extension upgrade dash,null",
+    );
+  });
+
+  it("reports a failed extension listing verbatim in the errors block", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "gh",
+      `if [ "$1" = "--version" ]; then
+  echo "gh version 2.97.0"
+  exit 0
+fi
+if [ "$1" = "extension" ] && [ "$2" = "list" ]; then
+  echo "gh fake: host refused" >&2
+  exit 4
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "gh"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain("gh,gh,gh extension list failed (exit 4)");
+    expect(result.stdout).toContain("  gh,gh,true,2.97.0,null,null,null,null");
+  });
+});
+
+describe("skills surface", () => {
+  it("reports not installed when neither skills nor npx is on PATH", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "skills"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  skills,skills,false,null,null,null,null,null",
+    );
+  });
+
+  it("falls back to npx -y skills when no skills binary is on PATH", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "npx",
+      `if [ "$1" = "-y" ] && [ "$2" = "skills" ] && [ "$3" = "list" ] && [ "$4" = "-g" ]; then
+  echo 'Global Skills'
+  echo ''
+  echo 'find-skills                        ~/.agents/skills/find-skills'
+  echo '  Agents: Claude Code  Source: vercel-labs/skills'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "skills"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  skills,find-skills,true,null,null,null,skills update -g find-skills,null",
+    );
+  });
+
+  it("reports a failed listing verbatim in the errors block", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "skills",
+      `if [ "$1" = "list" ]; then
+  echo "skills fake: offline" >&2
+  exit 1
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "skills"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain(
+      "skills,skills,skills list -g failed (exit 1)",
+    );
+    expect(result.stdout).toContain(
+      "  skills,skills,true,null,null,null,null,null",
+    );
+  });
+});
+
+describe("fnm surface", () => {
+  it("reports a missing fnm as one not-installed row", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "fnm"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  fnm,fnm,false,null,null,null,null,null");
+  });
+
+  it("reports node as not installed when no version is installed", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "fnm",
+      `if [ "$1" = "list" ]; then
+  echo '* system'
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "fnm 1.38.2"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "fnm"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  fnm,node,false,null,null,null,null,null",
+    );
+  });
+
+  it("falls back to the last installed version when no default alias is set", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "fnm",
+      `if [ "$1" = "list" ]; then
+  echo '* v22.20.0'
+  echo '* v24.18.0'
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  echo 'v24.21.0 (Krypton)'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "fnm"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  fnm,node,true,v24.18.0,v24.21.0,minor,fnm install v24.21.0 && fnm default v24.21.0,fnm default v24.18.0",
+    );
+  });
+
+  it("keeps the apply command absent when no latest LTS is learned", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "fnm",
+      `if [ "$1" = "list" ]; then
+  echo '* v24.18.0 default'
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  echo "fnm fake: mirror down" >&2
+  exit 7
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "fnm"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  fnm,node,true,v24.18.0,null,null,null,fnm default v24.18.0",
+    );
+  });
+});
+
+describe("apt surface", () => {
+  it("reports a missing apt as one not-installed row", async () => {
+    const bare = createEnv();
+    bare.writeFake("npm", "exit 0");
+    const result = await runCli(["status", "--surface", "apt"], bare.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  apt,apt,false,null,null,null,null,null");
+  });
+
+  it("reports a failed package listing verbatim in the errors block", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "apt",
+      `if [ "$1" = "list" ]; then
+  echo "apt fake: lists locked" >&2
+  exit 100
+fi
+if [ "$1" = "--version" ]; then
+  echo "apt 2.8.3 (amd64)"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain(
+      "apt,apt,apt list --upgradable failed (exit 100)",
+    );
+    expect(result.stdout).toContain("  apt,apt,true,2.8.3,null,null,null,null");
+  });
+
+  it("reports the reboot-required flag when the configured path exists", async () => {
+    const fake = createEnv();
+    const flag = `${fake.root}/reboot-required`;
+    writeFileSync(flag, "*** System restart required ***\n");
+    fake.writeFake(
+      "apt",
+      `if [ "$1" = "list" ] && [ "$2" = "--upgradable" ]; then
+  echo 'Listing...'
+  exit 0
+fi
+exit 1`,
+    );
+    fake.writeConfig({
+      surfaces: { apt: { rebootRequiredPath: flag } },
+    });
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  apt,reboot-required,true,null,null,null,null,null",
+    );
+  });
+
+  it("carries no installed version when apt names no upgradable-from", async () => {
+    const fake = createEnv();
+    fake.writeFake(
+      "apt",
+      `if [ "$1" = "list" ] && [ "$2" = "--upgradable" ]; then
+  echo 'Listing...'
+  echo 'ripgrep/nowhere 15.0.0 amd64'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  apt,ripgrep,true,null,15.0.0,null,sudo apt-get update && sudo apt-get upgrade,null",
     );
   });
 });
@@ -644,7 +1027,7 @@ describe("status --json", () => {
     };
     expect(model.schemaVersion).toBe(1);
     expect(typeof model.generatedAt).toBe("string");
-    expect(model.tools).toHaveLength(24);
+    expect(model.tools).toHaveLength(39);
     const typescript = model.tools.find((row) => row.tool === "typescript");
     expect(typescript).toEqual({
       surface: "npm",
@@ -660,6 +1043,23 @@ describe("status --json", () => {
     expect(ghost).toEqual({
       surface: "mise",
       tool: "ghost",
+      installed: false,
+    });
+    const pinned = model.tools.find(
+      (row) => row.surface === "gh" && row.tool === "pinned",
+    );
+    expect(pinned).toEqual({
+      surface: "gh",
+      tool: "pinned",
+      installed: true,
+      version: "v0.3.0",
+    });
+    const reboot = model.tools.find(
+      (row) => row.surface === "apt" && row.tool === "reboot-required",
+    );
+    expect(reboot).toEqual({
+      surface: "apt",
+      tool: "reboot-required",
       installed: false,
     });
     // New surfaces emit the same normalized shape; absent facts stay absent
@@ -754,7 +1154,7 @@ describe("usage errors", () => {
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("Unknown surface: nope");
     expect(result.stdout).toContain(
-      "Known surfaces: npm, mise, uv, claude, codex, opencode, pi, herdr, no-mistakes",
+      "Known surfaces: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes",
     );
   });
 
@@ -864,7 +1264,7 @@ describe("config resolution", () => {
     const result = await runCli(["status"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain(
-      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, claude, codex, opencode, pi, herdr, no-mistakes)",
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes)",
     );
   });
 
