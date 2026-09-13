@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, readlinkSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { mapLimit, pathCandidates, runBounded } from "./exec.js";
 import type { InUseSource, Surface, ToolStatus } from "./types.js";
 
@@ -92,7 +92,7 @@ export class InUseProber {
     }
     for (const name of executables) {
       for (const candidate of pathCandidates(name, this.env)) {
-        for (const process of processes.get(candidate) ?? []) {
+        for (const process of processes.get(realpath(candidate)) ?? []) {
           facts.push({
             source: "process",
             detail: `process ${process.pid} runs ${process.exe}`,
@@ -180,6 +180,18 @@ export class InUseProber {
       processes.set(exe, list);
     }
     return processes;
+  }
+}
+
+/**
+ * /proc/<pid>/exe is the resolved binary, so a PATH entry that is a symlink
+ * or shim (fnm multishell links, installer stubs) must be resolved to match.
+ */
+function realpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
   }
 }
 

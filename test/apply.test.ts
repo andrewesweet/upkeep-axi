@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -462,8 +469,12 @@ exit 1`,
     // A process whose /proc/<pid>/exe is the copy of codex on the fake PATH:
     // exactly the file an apply would replace. /bin/sleep copied under the
     // test root keeps the fake PATH fake while giving the exe a real inode.
-    copyFileSync("/usr/bin/sleep", join(fake.binDir, "codex"));
-    chmodSync(join(fake.binDir, "codex"), 0o755);
+    // The PATH entry is a symlink to it, as installer stubs and fnm links
+    // are: /proc reports the resolved binary, and the match must still hold.
+    copyFileSync("/usr/bin/sleep", join(fake.root, "codex-real"));
+    chmodSync(join(fake.root, "codex-real"), 0o755);
+    rmSync(join(fake.binDir, "codex"));
+    symlinkSync(join(fake.root, "codex-real"), join(fake.binDir, "codex"));
     const sleeper = spawn(join(fake.binDir, "codex"), ["10"], {
       stdio: "ignore",
     });
@@ -479,7 +490,9 @@ exit 1`,
         in_use?: Array<{ surface: string; tool: string; detail: string }>;
       };
       expect(model.tools[0]?.in_use).toBe(true);
-      expect(model.in_use?.[0]?.detail).toMatch(/^process \d+ runs .+\/codex$/);
+      expect(model.in_use?.[0]?.detail).toMatch(
+        /^process \d+ runs .+\/codex-real$/,
+      );
 
       const apply = await runCli(
         ["apply", "codex", "--execute", "--json"],
