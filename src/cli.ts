@@ -26,6 +26,8 @@ import {
   renderJournalToon,
   renderStatusJson,
   renderStatusToon,
+  JOURNAL_ROW_FIELDS,
+  TOOL_ROW_FIELDS,
 } from "./render.js";
 import { resolveSurfaces } from "./surfaces/index.js";
 import { collectStatus } from "./status.js";
@@ -55,13 +57,15 @@ examples[4]:
 
 export const STATUS_HELP = `usage: upkeep-axi status [flags]
 Report update inventory for every enabled surface: installed and available versions, semver tier, in-use, PATH skew, the tool's own update announcements, and the exact apply and pin commands.
-flags[4]:
-  --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path>, --json
+flags[5]:
+  --surface <id[,id...]>, --since <cursor>, --changed-only, --fields <a,b,c>, --config <path>, --json
   --since <cursor> (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; --changed-only reports rows whose installed version differs from the journal's newest record of them
+  --fields <a,b,c> projects every tools[] row to the named fields, in that order: ${TOOL_ROW_FIELDS.join(", ")}
   config: --config <path> or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
-examples[5]:
+examples[6]:
   upkeep-axi status
   upkeep-axi status --surface npm
+  upkeep-axi status --surface npm --fields surface,tool,tier
   upkeep-axi status --changed-only
   upkeep-axi status --since 3
   upkeep-axi status --json
@@ -69,9 +73,10 @@ examples[5]:
 
 export const APPLY_HELP = `usage: upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>] [flags]
 Plan updates from the same rows status produces; execute only with --execute. --all requires --tier and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. apt is report-only and never applied.
-Every apply delegates to the vendor's own updater with fixed arguments under a per-surface time budget (config applyTimeoutMs, default 900000). A refused delegate is reported verbatim and never retried; one that outruns its budget is left running and reported unconfirmed. A surface whose tool is measured in use (herdr agents, no-mistakes runs, the process table) is refused with the reason.
-flags[5]:
-  --all, --tier <patch|minor|major>, --execute, --config <path>, --json
+Every apply delegates to the vendor's own updater with fixed arguments under a per-surface time budget (config applyTimeoutMs, default 900000). A refused delegate is reported verbatim and never retried; one that outruns its budget is left running and reported unconfirmed. A refused or unconfirmed execute exits 1 with every row's outcome on stdout. A surface whose tool is measured in use (herdr agents, no-mistakes runs, the process table) is refused with the reason.
+flags[6]:
+  --all, --tier <patch|minor|major>, --execute, --full, --config <path>, --json
+  --full prints a refused or unconfirmed delegate's output verbatim; the default caps it at 800 characters with a truncation marker naming the total
 examples[5]:
   upkeep-axi apply npm
   upkeep-axi apply npm typescript --execute
@@ -82,8 +87,9 @@ examples[5]:
 
 export const JOURNAL_HELP = `usage: upkeep-axi journal [flags]
 Print the append-only journal of executed applies: one record per surface per tool, with before, after, tier, command, exit, duration_ms, pin, and started_at. Never rotated; the journal lives under $XDG_STATE_HOME/upkeep-axi (default ~/.local/state/upkeep-axi/journal.jsonl).
-flags[2]:
-  --config <path>, --json
+flags[3]:
+  --fields <a,b,c>, --config <path>, --json
+  --fields <a,b,c> projects every record to the named fields, in that order: ${JOURNAL_ROW_FIELDS.join(", ")}
 examples[2]:
   upkeep-axi journal
   upkeep-axi journal --json
@@ -132,6 +138,47 @@ function requireFlagValue(args: string[], index: number, flag: string): string {
     ]);
   }
   return value;
+}
+
+/**
+ * Parse the `--fields` comma list against a command's row model: unknown
+ * fields are usage errors, duplicates collapse, order is preserved.
+ */
+function parseFields(
+  raw: string,
+  command: string,
+  valid: readonly string[],
+): string[] {
+  const fields = [
+    ...new Set(
+      raw
+        .split(",")
+        .map((field) => field.trim())
+        .filter(Boolean),
+    ),
+  ];
+  const unknown = fields.filter((field) => !valid.includes(field));
+  if (unknown.length > 0) {
+    throw new AxiError(
+      `Unknown field \`${unknown[0]}\` for \`${command}\` rows`,
+      "VALIDATION_ERROR",
+      [
+        `Valid fields: ${valid.join(", ")}`,
+        `Run \`upkeep-axi ${command} --help\` for usage`,
+      ],
+    );
+  }
+  if (fields.length === 0) {
+    throw new AxiError(
+      "`--fields` requires a comma list of field names",
+      "VALIDATION_ERROR",
+      [
+        `Valid fields: ${valid.join(", ")}`,
+        `Run \`upkeep-axi ${command} --help\` for usage`,
+      ],
+    );
+  }
+  return fields;
 }
 
 interface ParsedArgs {
@@ -215,10 +262,30 @@ async function statusCommand(
   const parsed = parseFlags(
     args,
     "status",
-    "--json, --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path>",
-    new Set(["--surface", "--since"]),
+    "--json, --surface <id[,id...]>, --since <cursor>, --changed-only, --fields <a,b,c>, --config <path>",
+    new Set(["--surface", "--since", "--fields"]),
     new Set(["--changed-only"]),
   );
+  // Stray positionals fail loud: `status npm` almost certainly meant
+  // `status --surface npm`, and silence would report the wrong scope.
+  if (parsed.positionals.length > 0) {
+    throw new AxiError(
+      `Unknown argument \`${parsed.positionals[0]}\` for \`status\``,
+      "VALIDATION_ERROR",
+      [
+        `Did you mean \`upkeep-axi status --surface ${parsed.positionals[0]}\`?`,
+        "Run `upkeep-axi status --help` for usage",
+      ],
+    );
+  }
+  const fields =
+    parsed.values.get("--fields") !== undefined
+      ? parseFields(
+          parsed.values.get("--fields") as string,
+          "status",
+          TOOL_ROW_FIELDS,
+        )
+      : undefined;
   let surfaceFilter: string[] | undefined;
   const surfaceValue = parsed.values.get("--surface");
   if (surfaceValue !== undefined) {
@@ -254,19 +321,27 @@ async function statusCommand(
     tools: filtered,
   };
   return parsed.json
-    ? renderStatusJson(report)
+    ? renderStatusJson(report, { fields })
     : renderStatusToon(
         report,
         context?.binPath ?? process.argv[1] ?? "upkeep-axi",
         DESCRIPTION,
-        narrowed
-          ? {
-              emptyHelp: [
-                "Nothing changed since the cursor",
-                "Run `upkeep-axi status` for the full inventory",
-              ],
-            }
-          : undefined,
+        {
+          fields,
+          scoped: surfaceFilter !== undefined,
+          singleSurface:
+            surfaceFilter !== undefined && surfaceFilter.length === 1
+              ? surfaceFilter[0]
+              : undefined,
+          ...(narrowed
+            ? {
+                emptyHelp: [
+                  "Nothing changed since the cursor",
+                  "Run `upkeep-axi status` for the full inventory",
+                ],
+              }
+            : {}),
+        },
       );
 }
 
@@ -378,9 +453,9 @@ async function applyCommand(
   const parsed = parseFlags(
     args,
     "apply",
-    "--all, --tier <patch|minor|major>, --execute, --config <path>, --json",
+    "--all, --tier <patch|minor|major>, --execute, --full, --config <path>, --json",
     new Set(["--tier"]),
-    new Set(["--all", "--execute"]),
+    new Set(["--all", "--execute", "--full"]),
   );
   const selection = parseApplySelection(
     parsed.positionals,
@@ -402,10 +477,24 @@ async function applyCommand(
   const config = loadValidatedConfig(parsed.configPath);
   const { plan, skipped } = await buildPlan(config, selection, env);
   const binPath = context?.binPath ?? process.argv[1] ?? "upkeep-axi";
+  const full = parsed.flags.has("--full");
+  const renderOptions = {
+    full,
+    ...(plan.length === 0
+      ? {
+          emptyPlanHelp: [
+            selection.all
+              ? `Nothing to apply: no known gaps at or below ${selection.tier}`
+              : "Nothing to apply: every selected row was skipped; see the skipped block",
+            "Run `upkeep-axi status` to see every surface and its apply commands",
+          ],
+        }
+      : {}),
+  };
   const render = (report: ApplyReport) =>
     parsed.json
-      ? renderApplyJson(report)
-      : renderApplyToon(report, binPath, DESCRIPTION);
+      ? renderApplyJson(report, renderOptions)
+      : renderApplyToon(report, binPath, DESCRIPTION, renderOptions);
   if (!parsed.flags.has("--execute")) {
     return render({
       generatedAt: new Date().toISOString(),
@@ -416,6 +505,12 @@ async function applyCommand(
     });
   }
   const { results, output } = await executePlan(config, plan, env);
+  // The captain's ruling: a refused or unconfirmed delegate is not a
+  // success. Exit 1 while every row's outcome stays on stdout - report and
+  // let the caller decide.
+  if (results.some((row) => row.outcome !== "applied")) {
+    process.exitCode = 1;
+  }
   return render({
     generatedAt: new Date().toISOString(),
     schemaVersion: SCHEMA_VERSION,
@@ -435,8 +530,8 @@ async function journalCommand(
   const parsed = parseFlags(
     args,
     "journal",
-    "--json, --config <path>",
-    new Set(),
+    "--json, --fields <a,b,c>, --config <path>",
+    new Set(["--fields"]),
     new Set(),
   );
   if (parsed.positionals.length > 0) {
@@ -452,12 +547,23 @@ async function journalCommand(
     schemaVersion: SCHEMA_VERSION,
     records,
   };
+  const fieldsOption =
+    parsed.values.get("--fields") !== undefined
+      ? {
+          fields: parseFields(
+            parsed.values.get("--fields") as string,
+            "journal",
+            JOURNAL_ROW_FIELDS,
+          ),
+        }
+      : {};
   return parsed.json
-    ? renderJournalJson(report)
+    ? renderJournalJson(report, fieldsOption)
     : renderJournalToon(
         report,
         context?.binPath ?? process.argv[1] ?? "upkeep-axi",
         DESCRIPTION,
+        fieldsOption,
       );
 }
 

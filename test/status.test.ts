@@ -188,8 +188,19 @@ describe("status (TOON default)", () => {
     expect(out).not.toContain("skew[");
     expect(out).not.toContain("announce[");
     expect(out).not.toContain("errors[");
-    // Contextual help.
-    expect(out).toContain("help[2]:");
+    // Pre-computed counts: only known gaps count, zero facts stay absent.
+    expect(out).toContain(
+      "summary:\n  tools: 40\n  gaps: 10\n  major: 3\n  minor: 7",
+    );
+    // Contextual help, derived from the invocation: gaps present suggest
+    // apply, and the scoping hint stays.
+    expect(out).toContain("help[3]:");
+    expect(out).toContain(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+    );
+    expect(out).toContain(
+      "Run `upkeep-axi status --surface <id>` to scope to one surface",
+    );
     expect(out).toContain(
       "Run `upkeep-axi status --json` for the normalized model",
     );
@@ -1193,6 +1204,189 @@ describe("status --json", () => {
   });
 });
 
+describe("AXI output discipline", () => {
+  it("rejects stray positionals instead of silently reporting everything", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "npm"], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "error: Unknown argument `npm` for `status`",
+    );
+    expect(result.stdout).toContain(
+      "Did you mean `upkeep-axi status --surface npm`?",
+    );
+    expect(result.stdout).toContain("Run `upkeep-axi status --help` for usage");
+  });
+
+  it("derives the help from the invocation: scoped with gaps suggests that apply", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--surface", "npm"], fake.env());
+    expect(result.code).toBe(0);
+    // The scoping hint is already done: it never comes back.
+    expect(result.stdout).not.toContain("to scope to one surface");
+    expect(result.stdout).toContain(
+      "Run `upkeep-axi apply npm` to plan its gaps",
+    );
+    expect(result.stdout).toContain("help[2]:");
+  });
+
+  it("never hints apply for apt: a scoped apt gap hints the row's own command", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply");
+    expect(result.stdout).toContain(
+      "Run `sudo apt-get update && sudo apt-get upgrade` yourself: apt is report-only",
+    );
+    expect(result.stdout).toContain("help[2]:");
+  });
+
+  it("skips the apply hint when the only gaps are apt rows", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["status", "--surface", "apt,skills"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  apt,ripgrep,");
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply");
+    expect(result.stdout).toContain("help[1]:");
+  });
+
+  it("derives the help from the rows: no gaps drops the update hint", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["status", "--surface", "skills,herdr"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply");
+    expect(result.stdout).not.toContain("to scope to one surface");
+    expect(result.stdout).toContain("help[1]:");
+  });
+
+  it("summarizes counts by tier, in-use, and skew on every status run", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      summary?: Record<string, number>;
+      tools: Array<{ tier?: string; in_use?: boolean }>;
+    };
+    // Counted independently from the rows: only known gaps count.
+    const expected: Record<string, number> = {
+      tools: model.tools.length,
+      gaps: model.tools.filter((row) => row.tier && row.tier !== "none").length,
+    };
+    for (const tier of ["major", "minor", "patch"] as const) {
+      const count = model.tools.filter((row) => row.tier === tier).length;
+      if (count > 0) expected[tier] = count;
+    }
+    const inUse = model.tools.filter((row) => row.in_use === true).length;
+    if (inUse > 0) expected.in_use = inUse;
+    expect(model.summary).toEqual(expected);
+    expect(model.summary?.gaps).toBeGreaterThan(0);
+  });
+
+  it("--fields projects every tools[] row, shared by TOON and JSON", async () => {
+    const fake = stdEnv();
+    const toon = await runCli(
+      ["status", "--surface", "npm", "--fields", "surface,tool,tier"],
+      fake.env(),
+    );
+    expect(toon.code).toBe(0);
+    expect(toon.stdout).toContain("tools[5]{surface,tool,tier}:");
+    expect(toon.stdout).toContain("  npm,typescript,minor");
+    const json = await runCli(
+      ["status", "--surface", "npm", "--fields", "surface,tool,tier", "--json"],
+      fake.env(),
+    );
+    const model = JSON.parse(json.stdout) as {
+      tools: Array<Record<string, unknown>>;
+    };
+    expect(model.tools).toHaveLength(5);
+    // Every row projects to the named fields and nothing else; a field the
+    // row leaves absent (npm gone has no tier) stays absent in JSON.
+    expect(
+      model.tools.every((row) =>
+        Object.keys(row).every((key) =>
+          ["surface", "tool", "tier"].includes(key),
+        ),
+      ),
+    ).toBe(true);
+    expect(model.tools[2]).toEqual({
+      surface: "npm",
+      tool: "typescript",
+      tier: "minor",
+    });
+  });
+
+  it("--fields preserves the caller's order and drops duplicates", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["status", "--surface", "npm", "--fields", "tool,surface,tool"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("tools[5]{tool,surface}:");
+  });
+
+  it("an unknown field is a usage error naming the valid fields", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["status", "--surface", "npm", "--fields", "tool,bogus"],
+      fake.env(),
+    );
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "error: Unknown field `bogus` for `status` rows",
+    );
+    expect(result.stdout).toContain(
+      "Valid fields: surface, tool, installed, version, latest, tier, in_use, apply, pin",
+    );
+  });
+
+  it("--fields without a list is a usage error", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--fields", ""], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "`--fields` requires a comma list of field names",
+    );
+  });
+
+  it("--fields projects journal records too", async () => {
+    const fake = stdEnv();
+    await runCli(["apply", "npm", "typescript", "--execute"], fake.env());
+    const toon = await runCli(
+      ["journal", "--fields", "id,surface,tool"],
+      fake.env(),
+    );
+    expect(toon.code).toBe(0);
+    expect(toon.stdout).toContain("records[1]{id,surface,tool}:");
+    expect(toon.stdout).toContain("  1,npm,typescript");
+    const json = await runCli(
+      ["journal", "--fields", "id,surface,tool", "--json"],
+      fake.env(),
+    );
+    const model = JSON.parse(json.stdout) as {
+      records: Array<Record<string, unknown>>;
+    };
+    expect(model.records).toEqual([
+      { id: 1, surface: "npm", tool: "typescript" },
+    ]);
+  });
+
+  it("an unknown journal field is a usage error", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["journal", "--fields", "nope"], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "error: Unknown field `nope` for `journal` rows",
+    );
+  });
+});
+
 describe("usage errors", () => {
   it("rejects an unknown surface by naming the known ones", async () => {
     const fake = stdEnv();
@@ -1212,7 +1406,7 @@ describe("usage errors", () => {
       "error: Unknown flag `--bogus` for `status`",
     );
     expect(result.stdout).toContain(
-      "Valid flags for `status`: --json, --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path> (--help always allowed)",
+      "Valid flags for `status`: --json, --surface <id[,id...]>, --since <cursor>, --changed-only, --fields <a,b,c>, --config <path> (--help always allowed)",
     );
   });
 

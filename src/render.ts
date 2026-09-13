@@ -6,6 +6,61 @@ import type { ToolStatus } from "./types.js";
 
 export const SCHEMA_VERSION = 3;
 
+/**
+ * The delegate output a report shows by default before truncating with a
+ * total-size marker (AXI: never omit, always show how much is missing).
+ * `apply --full` lifts the cap.
+ */
+export const OUTPUT_PREVIEW_CHARS = 800;
+
+/** Cap one `output[]` detail; the marker names the total so nothing is lost. */
+export function truncateOutputDetail(detail: string, full?: boolean): string {
+  if (full || detail.length <= OUTPUT_PREVIEW_CHARS) return detail;
+  return `${detail.slice(0, OUTPUT_PREVIEW_CHARS)}… (truncated, ${detail.length} chars total)`;
+}
+
+/** The fields a `tools[]` row carries, in their default spelling. */
+export const TOOL_ROW_FIELDS = [
+  "surface",
+  "tool",
+  "installed",
+  "version",
+  "latest",
+  "tier",
+  "in_use",
+  "apply",
+  "pin",
+] as const;
+
+/** The fields a journal `records[]` row carries, in their default spelling. */
+export const JOURNAL_ROW_FIELDS = [
+  "id",
+  "surface",
+  "tool",
+  "before",
+  "after",
+  "tier",
+  "command",
+  "exit",
+  "duration_ms",
+  "pin",
+  "started_at",
+] as const;
+
+/** Project each row to the named fields, in the caller's order. */
+function projectFields<Row extends Record<string, unknown>>(
+  rows: Row[],
+  fields?: string[],
+): Row[] {
+  if (!fields || fields.length === 0) return rows;
+  return rows.map((row) => {
+    const projected: Record<string, unknown> = {};
+    for (const field of fields) projected[field] = row[field];
+    // A projection of a row is still a row of the same block, partial.
+    return projected as Row;
+  });
+}
+
 /** Collapse the user's home directory to `~` for display. */
 function collapseHome(path: string, homeDir: string = homedir()): string {
   return path.startsWith(homeDir) ? `~${path.slice(homeDir.length)}` : path;
@@ -18,7 +73,7 @@ export interface StatusReport {
 }
 
 /** The row shape of the tools[] block; TOON and JSON share the spelling. */
-interface ToolRow {
+type ToolRow = {
   surface: string;
   tool: string;
   installed: boolean;
@@ -28,7 +83,7 @@ interface ToolRow {
   in_use?: boolean;
   apply?: string;
   pin?: string;
-}
+};
 
 function toToolRow(row: ToolStatus): ToolRow {
   return {
@@ -91,6 +146,12 @@ interface StatusModel {
   announce?: AnnounceRow[];
   in_use?: InUseRow[];
   sync?: SyncRow[];
+  summary?: Record<string, number>;
+}
+
+export interface StatusModelOptions {
+  /** Project every `tools[]` row to these fields (the `--fields` flag). */
+  fields?: string[];
 }
 
 /**
@@ -98,7 +159,10 @@ interface StatusModel {
  * PATH skew, announcements) live in their own blocks joined on surface+tool,
  * never inlined into every row.
  */
-export function statusModel(report: StatusReport): StatusModel {
+export function statusModel(
+  report: StatusReport,
+  options: StatusModelOptions = {},
+): StatusModel {
   const model: StatusModel = {
     generatedAt: report.generatedAt,
     schemaVersion: report.schemaVersion,
@@ -152,17 +216,81 @@ export function statusModel(report: StatusReport): StatusModel {
       files: row.sync?.files,
     }));
   }
+  model.summary = statusSummary(model);
+  // Projection happens last: the summary always counts the full rows.
+  model.tools = projectFields(model.tools, options.fields);
   return model;
 }
 
-const HELP_HINTS = [
-  "Run `upkeep-axi status --surface <id>` to scope to one surface",
-  "Run `upkeep-axi status --json` for the normalized model",
-];
+/**
+ * Pre-computed counts the next step almost always needs: totals, gaps by
+ * tier, in-use conflicts, and skew. Only known gaps count; an unknown
+ * latest is never a gap, and a zero fact stays absent.
+ */
+function statusSummary(model: StatusModel): Record<string, number> {
+  const summary: Record<string, number> = {
+    tools: model.tools.length,
+    gaps: model.tools.filter((row) => row.tier && row.tier !== "none").length,
+  };
+  for (const tier of ["major", "minor", "patch"] as const) {
+    const count = model.tools.filter((row) => row.tier === tier).length;
+    if (count > 0) summary[tier] = count;
+  }
+  const inUse = model.tools.filter((row) => row.in_use === true).length;
+  if (inUse > 0) summary.in_use = inUse;
+  if (model.skew && model.skew.length > 0) summary.skew = model.skew.length;
+  return summary;
+}
 
-interface ToonOptions {
+/** Options shared by the TOON renderers that can print a help block. */
+export interface ToonOptions {
   /** Help lines used when the report carries no rows. */
   emptyHelp?: string[];
+}
+
+export interface StatusRenderOptions extends StatusModelOptions, ToonOptions {
+  /** The caller scoped with `--surface`: drop the scoping hint. */
+  scoped?: boolean;
+  /** The one surface requested, when `--surface` named exactly one. */
+  singleSurface?: string;
+}
+
+/**
+ * Help derived from the invocation and the rows: the scoping hint only
+ * when unscoped, the apply hint only when known gaps exist that apply can
+ * plan. apt is report-only, so its gaps hint the row's own command instead.
+ */
+function statusHelpHints(
+  rows: ToolStatus[],
+  options: { scoped?: boolean; singleSurface?: string },
+): string[] {
+  const hints: string[] = [];
+  const gaps = rows.filter((row) => row.tier && row.tier !== "none");
+  if (options.singleSurface === "apt") {
+    const commands = new Set(
+      gaps.flatMap((row) => (row.applyCommand ? [row.applyCommand] : [])),
+    );
+    for (const command of commands) {
+      hints.push(`Run \`${command}\` yourself: apt is report-only`);
+    }
+  } else if (options.singleSurface) {
+    if (gaps.length > 0) {
+      hints.push(
+        `Run \`upkeep-axi apply ${options.singleSurface}\` to plan its gaps`,
+      );
+    }
+  } else if (gaps.some((row) => row.surface !== "apt")) {
+    hints.push(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+    );
+  }
+  if (!options.scoped) {
+    hints.push(
+      "Run `upkeep-axi status --surface <id>` to scope to one surface",
+    );
+  }
+  hints.push("Run `upkeep-axi status --json` for the normalized model");
+  return hints;
 }
 
 /** Default output: compact TOON, decision-shaped, with a help block. */
@@ -170,28 +298,36 @@ export function renderStatusToon(
   report: StatusReport,
   binPath: string,
   description: string,
-  options: ToonOptions = {},
+  options: StatusRenderOptions = {},
 ): string {
   const body: Record<string, unknown> = {
     bin: collapseHome(binPath),
     description,
-    ...statusModel(report),
+    ...statusModel(report, options),
   };
-  const help =
-    report.tools.length > 0
-      ? HELP_HINTS
-      : (options.emptyHelp ?? [
-          "Run `upkeep-axi status --surface <id>` to scope to one surface",
-          "Every configured surface is missing or disabled; check the config file",
-        ]);
+  let help: string[];
+  if (report.tools.length > 0) {
+    help = statusHelpHints(report.tools, {
+      scoped: options.scoped,
+      singleSurface: options.singleSurface,
+    });
+  } else {
+    help = options.emptyHelp ?? [
+      "Run `upkeep-axi status --surface <id>` to scope to one surface",
+      "Every configured surface is missing or disabled; check the config file",
+    ];
+  }
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)
     .join("\n")}`;
 }
 
 /** `--json` emits the normalized model with no renames and no re-nesting. */
-export function renderStatusJson(report: StatusReport): string {
-  return JSON.stringify(statusModel(report), null, 2);
+export function renderStatusJson(
+  report: StatusReport,
+  options: StatusModelOptions = {},
+): string {
+  return JSON.stringify(statusModel(report, options), null, 2);
 }
 
 const PLAN_HELP = [
@@ -204,8 +340,18 @@ const EXECUTED_HELP = [
   "Run `upkeep-axi status --since <record id>` to report only what changed",
 ];
 
+export interface ApplyRenderOptions {
+  /** Lift the `output[]` display cap: print delegate output verbatim. */
+  full?: boolean;
+  /** Help lines used when the plan carried nothing to apply. */
+  emptyPlanHelp?: string[];
+}
+
 /** The apply report: the plan, what was refused, and with --execute what ran. */
-export function applyModel(report: ApplyReport): Record<string, unknown> {
+export function applyModel(
+  report: ApplyReport,
+  options: ApplyRenderOptions = {},
+): Record<string, unknown> {
   const model: Record<string, unknown> = {
     generatedAt: report.generatedAt,
     schemaVersion: report.schemaVersion,
@@ -237,7 +383,21 @@ export function applyModel(report: ApplyReport): Record<string, unknown> {
     }));
   }
   if (report.output && report.output.length > 0) {
-    model.output = report.output;
+    model.output = report.output.map((row) => ({
+      surface: row.surface,
+      tool: row.tool,
+      detail: truncateOutputDetail(row.detail, options.full),
+    }));
+  }
+  if (report.results && report.results.length > 0) {
+    const summary: Record<string, number> = {};
+    for (const outcome of ["applied", "refused", "unconfirmed"] as const) {
+      const count = report.results.filter(
+        (row) => row.outcome === outcome,
+      ).length;
+      if (count > 0) summary[outcome] = count;
+    }
+    model.summary = summary;
   }
   return model;
 }
@@ -246,27 +406,51 @@ export function renderApplyToon(
   report: ApplyReport,
   binPath: string,
   description: string,
+  options: ApplyRenderOptions = {},
 ): string {
   const body = {
     bin: collapseHome(binPath),
     description,
-    ...applyModel(report),
+    ...applyModel(report, options),
   };
-  const help =
-    report.mode === "executed"
-      ? EXECUTED_HELP
-      : report.plan.length > 0
-        ? PLAN_HELP
-        : [
-            "Run `upkeep-axi status` to see every surface and its apply commands",
-          ];
+  const help: string[] = [];
+  if (report.plan.length === 0) {
+    help.push(
+      ...(options.emptyPlanHelp ?? [
+        "Nothing to apply: no known gaps",
+        "Run `upkeep-axi status` to see every surface and its apply commands",
+      ]),
+    );
+  } else if (report.mode === "executed") {
+    if (report.results?.some((row) => row.outcome !== "applied")) {
+      help.push(
+        "Exit is 1: every row is in results with its outcome; refused and unconfirmed delegates were not applied",
+      );
+    }
+    if (
+      !options.full &&
+      report.output?.some(
+        (row) => truncateOutputDetail(row.detail) !== row.detail,
+      )
+    ) {
+      help.push(
+        "Some delegate output was truncated: run the same apply with --full to print it verbatim",
+      );
+    }
+    help.push(...EXECUTED_HELP);
+  } else {
+    help.push(...PLAN_HELP);
+  }
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)
     .join("\n")}`;
 }
 
-export function renderApplyJson(report: ApplyReport): string {
-  return JSON.stringify(applyModel(report), null, 2);
+export function renderApplyJson(
+  report: ApplyReport,
+  options: ApplyRenderOptions = {},
+): string {
+  return JSON.stringify(applyModel(report, options), null, 2);
 }
 
 export interface JournalReport {
@@ -275,29 +459,43 @@ export interface JournalReport {
   records: JournalRecord[];
 }
 
+export interface JournalRenderOptions {
+  /** Project every record row to these fields (the `--fields` flag). */
+  fields?: string[];
+}
+
+function journalRows(
+  report: JournalReport,
+  options: JournalRenderOptions = {},
+): Array<Record<string, unknown>> {
+  const rows = report.records.map((record) => ({
+    id: record.id,
+    surface: record.surface,
+    tool: record.tool,
+    before: record.before,
+    after: record.after,
+    tier: record.tier,
+    command: record.command,
+    exit: record.exit,
+    duration_ms: record.duration_ms,
+    pin: record.pin,
+    started_at: record.started_at,
+  }));
+  return projectFields(rows, options.fields);
+}
+
 export function renderJournalToon(
   report: JournalReport,
   binPath: string,
   description: string,
+  options: JournalRenderOptions = {},
 ): string {
   const body = {
     bin: collapseHome(binPath),
     description,
     generatedAt: report.generatedAt,
     schemaVersion: report.schemaVersion,
-    records: report.records.map((record) => ({
-      id: record.id,
-      surface: record.surface,
-      tool: record.tool,
-      before: record.before,
-      after: record.after,
-      tier: record.tier,
-      command: record.command,
-      exit: record.exit,
-      duration_ms: record.duration_ms,
-      pin: record.pin,
-      started_at: record.started_at,
-    })),
+    records: journalRows(report, options),
   };
   const help =
     report.records.length > 0
@@ -313,12 +511,15 @@ export function renderJournalToon(
     .join("\n")}`;
 }
 
-export function renderJournalJson(report: JournalReport): string {
+export function renderJournalJson(
+  report: JournalReport,
+  options: JournalRenderOptions = {},
+): string {
   return JSON.stringify(
     {
       generatedAt: report.generatedAt,
       schemaVersion: report.schemaVersion,
-      records: report.records,
+      records: journalRows(report, options),
     },
     null,
     2,
