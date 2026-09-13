@@ -10,6 +10,7 @@ import {
 } from "axi-sdk-js";
 import {
   buildAmbientModel,
+  emptyAmbientModel,
   renderAmbientJson,
   renderAmbientToon,
 } from "./ambient.js";
@@ -44,6 +45,11 @@ import {
   TOOL_ROW_FIELDS,
 } from "./render.js";
 import { resolveSurfaces } from "./surfaces/index.js";
+import {
+  defaultSnapshotPath,
+  readSnapshot,
+  writeSnapshot,
+} from "./snapshot.js";
 import { collectStatus } from "./status.js";
 import { VERSION } from "./version.js";
 
@@ -54,13 +60,6 @@ export const DESCRIPTION =
 const HOOK_MARKER = "upkeep-axi";
 /** The second entrypoint the hook command runs (no arguments possible). */
 const AMBIENT_BIN_NAME = "upkeep-axi-ambient";
-/**
- * The hook's budget in seconds. The dashboard runs every surface's probes
- * serially with network round-trips (npm/cargo/bun views, gh dry-run, mise
- * and uv outdated, two firstmate fetches), so the SDK's 10 s default would
- * kill it before it printed anything.
- */
-const HOOK_TIMEOUT_SECONDS = 120;
 
 export const TOP_HELP = `usage: upkeep-axi [<command>] [flags]
 commands[5]:
@@ -125,9 +124,9 @@ examples[3]:
 `;
 
 export const AMBIENT_HELP = `usage: upkeep-axi ambient [flags]
-The session-start dashboard: known gaps and in-use conflicts only, most severe first, capped at a few lines with the counts pre-computed. This is exactly what the setup hooks inject; run it to preview them. Probe failures are counted here and reported verbatim by status.
-flags[2]:
-  --config <path>, --json
+The session-start dashboard: known gaps and in-use conflicts only, most severe first, capped at a few lines with the counts pre-computed. This is exactly what the setup hooks inject; run it to preview them. It never probes anything: it reads the inventory the last unfiltered status run saved under $XDG_STATE_HOME/upkeep-axi/status.json, brought up to date with applies journaled since, and says when that inventory is older than a day. Probe failures are counted here and reported verbatim by status.
+flags[1]:
+  --json
 examples[3]:
   upkeep-axi ambient
   upkeep-axi ambient --json
@@ -352,6 +351,14 @@ async function statusCommand(
   const narrowed = cursor !== undefined || changedOnly;
   const records = narrowed ? readJournal(defaultJournalPath(env)) : [];
   const tools = await collectStatus(config, surfaces, env);
+  const generatedAt = new Date().toISOString();
+  if (surfaceFilter === undefined) {
+    writeSnapshot(defaultSnapshotPath(env), {
+      generatedAt,
+      schemaVersion: SCHEMA_VERSION,
+      tools,
+    });
+  }
   let filtered = tools;
   if (cursor) {
     filtered = filterToolsByDrift(
@@ -365,7 +372,7 @@ async function statusCommand(
     filtered = filterToolsByDrift(tools, versionsAfterNewest(records));
   }
   const report = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     schemaVersion: SCHEMA_VERSION,
     tools: filtered,
   };
@@ -695,7 +702,6 @@ async function setupCommand(
     marker: HOOK_MARKER,
     execPath: entrypoint,
     binaryNames: [AMBIENT_BIN_NAME],
-    timeoutSeconds: HOOK_TIMEOUT_SECONDS,
     onError: (message) => errors.push(message),
   });
   const status = sessionStartHookStatus({ marker: HOOK_MARKER });
@@ -711,13 +717,7 @@ async function ambientCommand(
   context?: CliContext,
 ): Promise<string> {
   assertNotRoot();
-  const parsed = parseFlags(
-    args,
-    "ambient",
-    "--config <path>, --json",
-    new Set(),
-    new Set(),
-  );
+  const parsed = parseFlags(args, "ambient", "--json", new Set(), new Set());
   if (parsed.positionals.length > 0) {
     throw new AxiError(
       `Unknown argument \`${parsed.positionals[0]}\` for \`ambient\``,
@@ -726,10 +726,18 @@ async function ambientCommand(
     );
   }
   const env = process.env;
-  const config = loadValidatedConfig(parsed.configPath);
-  const surfaces = resolveSurfaces(undefined);
-  const tools = await collectStatus(config, surfaces, env);
-  const model = buildAmbientModel(tools, new Date().toISOString());
+  const now = new Date();
+  const snapshot = readSnapshot(defaultSnapshotPath(env));
+  const model = snapshot
+    ? buildAmbientModel(
+        snapshot,
+        recordsSince(readJournal(defaultJournalPath(env)), {
+          kind: "time",
+          at: new Date(snapshot.generatedAt),
+        }),
+        now.toISOString(),
+      )
+    : emptyAmbientModel(now.toISOString());
   return parsed.json
     ? renderAmbientJson(model)
     : renderAmbientToon(

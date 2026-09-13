@@ -49,7 +49,8 @@ describe("setup hooks", () => {
     expect(entry.type).toBe("command");
     expect(entry.command.endsWith(AMBIENT_ENTRY)).toBe(true);
     expect(existsSync(entry.command)).toBe(true);
-    expect(entry.timeout).toBe(120);
+    // The dashboard reads a saved inventory, so the SDK's default budget holds.
+    expect(entry.timeout).toBe(10);
 
     // Codex: the hook plus the user-level feature flag it needs.
     const codex = JSON.parse(
