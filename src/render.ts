@@ -166,8 +166,6 @@ export function statusModel(
   const model: StatusModel = {
     generatedAt: report.generatedAt,
     schemaVersion: report.schemaVersion,
-    // `--fields` projects rows to a subset of the row model, so the model
-    // carries rows as generic records from here on.
     tools: report.tools.map(toToolRow),
   };
   const errors = report.tools.filter((row) => row.error);
@@ -219,6 +217,7 @@ export function statusModel(
     }));
   }
   model.summary = statusSummary(model);
+  // Projection happens last: the summary always counts the full rows.
   model.tools = projectFields(model.tools, options.fields);
   return model;
 }
