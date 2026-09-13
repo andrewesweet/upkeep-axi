@@ -15,28 +15,17 @@ import { applyCommandText, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "firstmate";
 const DEFAULT_CLONE_PATH = "/home/andre/tools/firstmate";
-const DEFAULT_UPSTREAM_REMOTE = "upstream";
-const DEFAULT_FORK_REMOTE = "origin";
+/** The one subject: the fork's clone tracks upstream and origin on main. */
+const UPSTREAM_REMOTE = "upstream";
+const FORK_REMOTE = "origin";
 const DEFAULT_BRANCH = "main";
 /** Fetching two small GitHub repositories over the network. */
 const FETCH_TIMEOUT_MS = 120_000;
 /** Local git plumbing: refs, counts, worktrees, the trial rebase. */
 const GIT_LOCAL_TIMEOUT_MS = 30_000;
 
-export interface ForkSurfaceOptions {
-  clonePath: string;
-  upstreamRemote: string;
-  forkRemote: string;
-  defaultBranch: string;
-}
-
-export function forkOptions(ctx: SurfaceContext): ForkSurfaceOptions {
-  return {
-    clonePath: ctx.surface.clonePath ?? DEFAULT_CLONE_PATH,
-    upstreamRemote: ctx.surface.upstreamRemote ?? DEFAULT_UPSTREAM_REMOTE,
-    forkRemote: ctx.surface.forkRemote ?? DEFAULT_FORK_REMOTE,
-    defaultBranch: ctx.surface.defaultBranch ?? DEFAULT_BRANCH,
-  };
+function clonePath(ctx: SurfaceContext): string {
+  return ctx.surface.clonePath ?? DEFAULT_CLONE_PATH;
 }
 
 function gitPath(ctx: SurfaceContext): string | undefined {
@@ -106,7 +95,7 @@ export function rebaseBranch(upstreamSha: string): string {
  */
 function fastForwardDelegate(
   ctx: SurfaceContext,
-  options: ForkSurfaceOptions,
+  clone: string,
   forkRepo: string,
   forkSha: string,
   upstreamSha: string,
@@ -121,9 +110,9 @@ function fastForwardDelegate(
         file: git,
         args: [
           "-C",
-          options.clonePath,
+          clone,
           "push",
-          options.forkRemote,
+          FORK_REMOTE,
           `${upstreamSha}:refs/heads/${branch}`,
         ],
       },
@@ -135,7 +124,7 @@ function fastForwardDelegate(
           "--repo",
           forkRepo,
           "--base",
-          options.defaultBranch,
+          DEFAULT_BRANCH,
           "--head",
           branch,
           "--title",
@@ -161,7 +150,7 @@ function fastForwardDelegate(
  */
 function rebaseDelegate(
   ctx: SurfaceContext,
-  options: ForkSurfaceOptions,
+  clone: string,
   forkSha: string,
   upstreamSha: string,
 ): ApplyDelegate | undefined {
@@ -178,7 +167,7 @@ function rebaseDelegate(
         file: git,
         args: [
           "-C",
-          options.clonePath,
+          clone,
           "worktree",
           "add",
           "--detach",
@@ -201,7 +190,7 @@ function rebaseDelegate(
         file: git,
         args: [
           "-C",
-          options.clonePath,
+          clone,
           "worktree",
           "remove",
           "--force",
@@ -221,7 +210,7 @@ function rebaseDelegate(
 async function trialRebase(
   ctx: SurfaceContext,
   git: string,
-  options: ForkSurfaceOptions,
+  clone: string,
   forkSha: string,
   upstreamSha: string,
   forkAhead: number,
@@ -239,7 +228,7 @@ async function trialRebase(
       git,
       [
         "-C",
-        options.clonePath,
+        clone,
         "worktree",
         "add",
         "--detach",
@@ -283,7 +272,7 @@ async function trialRebase(
     // because a failed run must never mask the classification.
     await ctx.exec(
       git,
-      ["-C", options.clonePath, "worktree", "remove", "--force", scratch],
+      ["-C", clone, "worktree", "remove", "--force", scratch],
       GIT_LOCAL_TIMEOUT_MS,
     );
     rmSync(scratch, { recursive: true, force: true });
@@ -303,7 +292,7 @@ async function trialRebase(
 export const firstmateSurface: Surface = {
   id: SURFACE_ID,
   description: "the Firstmate fork's sync with upstream",
-  managerTool: "git",
+  managerTool: SURFACE_ID,
 
   async detect(ctx) {
     return gitPath(ctx) !== undefined;
@@ -312,10 +301,10 @@ export const firstmateSurface: Surface = {
   async status(ctx) {
     const git = gitPath(ctx);
     if (!git) return [];
-    const options = forkOptions(ctx);
+    const clone = clonePath(ctx);
     const probe = await ctx.exec(
       git,
-      ["-C", options.clonePath, "rev-parse", "--git-dir"],
+      ["-C", clone, "rev-parse", "--git-dir"],
       GIT_LOCAL_TIMEOUT_MS,
     );
     if (probe.code !== 0 || probe.timedOut) {
@@ -341,7 +330,7 @@ export const firstmateSurface: Surface = {
     // only the plain-gh pull request is unavailable.
     const url = await ctx.exec(
       git,
-      ["-C", options.clonePath, "remote", "get-url", options.forkRemote],
+      ["-C", clone, "remote", "get-url", FORK_REMOTE],
       GIT_LOCAL_TIMEOUT_MS,
     );
     const forkRepo =
@@ -349,49 +338,44 @@ export const firstmateSurface: Surface = {
         ? parseGitHubSlug(url.stdout.trim())
         : undefined;
     if (url.code !== 0 || url.timedOut) {
-      errors.push(failDetail(`git remote get-url ${options.forkRemote}`, url));
+      errors.push(failDetail(`git remote get-url ${FORK_REMOTE}`, url));
     }
 
     // Fetch both remotes; remote-tracking refs are the only thing a fetch
     // writes. A failed fetch keeps the row and its surviving facts, and
-    // leaves the class absent: a classification from stale refs would be a
-    // guess.
-    const remotes = [options.upstreamRemote, options.forkRemote];
+    // leaves that side's ref unread: a classification from a stale ref
+    // would be a guess.
+    const remotes = [UPSTREAM_REMOTE, FORK_REMOTE];
     const fetched = await mapLimit(remotes, 2, (remote) =>
-      ctx.exec(
-        git,
-        ["-C", options.clonePath, "fetch", remote],
-        FETCH_TIMEOUT_MS,
-      ),
+      ctx.exec(git, ["-C", clone, "fetch", remote], FETCH_TIMEOUT_MS),
     );
-    for (let index = 0; index < fetched.length; index++) {
-      const result = fetched[index];
-      if (result.code !== 0 || result.timedOut) {
-        errors.push(failDetail(`git fetch ${remotes[index]}`, result));
+    const revParse = async (
+      remote: string,
+      fetch: ExecResult,
+    ): Promise<string | undefined> => {
+      if (fetch.code !== 0 || fetch.timedOut) {
+        errors.push(failDetail(`git fetch ${remote}`, fetch));
+        return undefined;
       }
-    }
-
-    const upstreamRef = `refs/remotes/${options.upstreamRemote}/${options.defaultBranch}`;
-    const forkRef = `refs/remotes/${options.forkRemote}/${options.defaultBranch}`;
-    const [upstream, fork] = await mapLimit([upstreamRef, forkRef], 2, (ref) =>
-      ctx.exec(
+      const ref = `refs/remotes/${remote}/${DEFAULT_BRANCH}`;
+      const result = await ctx.exec(
         git,
-        ["-C", options.clonePath, "rev-parse", ref],
+        ["-C", clone, "rev-parse", ref],
         GIT_LOCAL_TIMEOUT_MS,
-      ),
-    );
-    const upstreamSha =
-      upstream.code === 0 && !upstream.timedOut
-        ? upstream.stdout.trim()
-        : undefined;
-    const forkSha =
-      fork.code === 0 && !fork.timedOut ? fork.stdout.trim() : undefined;
-    if (!upstreamSha)
-      errors.push(failDetail(`git rev-parse ${upstreamRef}`, upstream));
-    if (!forkSha) errors.push(failDetail(`git rev-parse ${forkRef}`, fork));
+      );
+      if (result.code !== 0 || result.timedOut) {
+        errors.push(failDetail(`git rev-parse ${ref}`, result));
+        return undefined;
+      }
+      return result.stdout.trim();
+    };
+    const [upstreamSha, forkSha] = await Promise.all([
+      revParse(UPSTREAM_REMOTE, fetched[0]),
+      revParse(FORK_REMOTE, fetched[1]),
+    ]);
     if (forkSha) {
       row.version = forkSha;
-      row.pinCommand = `git -C ${options.clonePath} push --force ${options.forkRemote} ${forkSha}:refs/heads/${options.defaultBranch}`;
+      row.pinCommand = `git -C ${clone} push --force ${FORK_REMOTE} ${forkSha}:refs/heads/${DEFAULT_BRANCH}`;
     }
     if (!upstreamSha || !forkSha) {
       if (errors.length > 0) row.error = errors.join("; ");
@@ -407,7 +391,7 @@ export const firstmateSurface: Surface = {
         git,
         [
           "-C",
-          options.clonePath,
+          clone,
           "rev-list",
           "--count",
           `${upstreamSha}..${forkSha}`,
@@ -418,7 +402,7 @@ export const firstmateSurface: Surface = {
         git,
         [
           "-C",
-          options.clonePath,
+          clone,
           "rev-list",
           "--count",
           `${forkSha}..${upstreamSha}`,
@@ -460,7 +444,7 @@ export const firstmateSurface: Surface = {
       const trial = await trialRebase(
         ctx,
         git,
-        options,
+        clone,
         forkSha,
         upstreamSha,
         forkAhead,
@@ -478,9 +462,9 @@ export const firstmateSurface: Surface = {
       row.tier = classTier(sync.class);
       const delegate =
         sync.class === "fast-forward" && forkRepo
-          ? fastForwardDelegate(ctx, options, forkRepo, forkSha, upstreamSha)
+          ? fastForwardDelegate(ctx, clone, forkRepo, forkSha, upstreamSha)
           : sync.class === "clean-rebase"
-            ? rebaseDelegate(ctx, options, forkSha, upstreamSha)
+            ? rebaseDelegate(ctx, clone, forkSha, upstreamSha)
             : undefined;
       if (delegate) row.applyCommand = applyCommandText(delegate);
       if (sync.class === "conflicts") {
@@ -502,19 +486,19 @@ export const firstmateSurface: Surface = {
     const upstreamSha = row.latest;
     const forkSha = row.version;
     if (!row.installed || !sync || !upstreamSha || !forkSha) return undefined;
-    const options = forkOptions(ctx);
+    const clone = clonePath(ctx);
     if (sync.class === "fast-forward") {
       if (!sync.forkRepo) return undefined;
       return fastForwardDelegate(
         ctx,
-        options,
+        clone,
         sync.forkRepo,
         forkSha,
         upstreamSha,
       );
     }
     if (sync.class === "clean-rebase") {
-      return rebaseDelegate(ctx, options, forkSha, upstreamSha);
+      return rebaseDelegate(ctx, clone, forkSha, upstreamSha);
     }
     return undefined;
   },

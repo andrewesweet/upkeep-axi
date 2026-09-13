@@ -105,19 +105,12 @@ function validateSurface(
       path,
     );
   }
-  for (const field of [
-    "clonePath",
-    "upstreamRemote",
-    "forkRemote",
-    "defaultBranch",
-  ] as const) {
-    if (entry[field] !== undefined && !isNonEmptyString(entry[field])) {
-      throw configError(
-        `surfaces.${id}.${field}`,
-        "must be a non-empty string",
-        path,
-      );
-    }
+  if (entry.clonePath !== undefined && !isNonEmptyString(entry.clonePath)) {
+    throw configError(
+      `surfaces.${id}.clonePath`,
+      "must be a non-empty string",
+      path,
+    );
   }
   if (entry.tools !== undefined) {
     if (!Array.isArray(entry.tools)) {

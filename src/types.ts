@@ -22,9 +22,8 @@ export type SemverTier = "none" | "patch" | "minor" | "major";
  * - `announce_args`: argv used to obtain that output; required with
  *   `announce_pattern`.
  * - `git`: watched-tools schema compatibility only. The Firstmate-fork
- *   surface describes its one subject with surface-level options
- *   (`clonePath`, `upstreamRemote`, `forkRemote`, `defaultBranch`), not
- *   per-tool entries.
+ *   surface describes its one subject with the surface-level `clonePath`,
+ *   not per-tool entries.
  */
 
 export interface ToolConfig {
@@ -44,12 +43,6 @@ export interface SurfaceConfig {
   rebootRequiredPath?: string;
   /** firstmate only: the local clone of the fork (default /home/andre/tools/firstmate). */
   clonePath?: string;
-  /** firstmate only: the upstream remote name (default "upstream"). */
-  upstreamRemote?: string;
-  /** firstmate only: the fork remote name (default "origin"). */
-  forkRemote?: string;
-  /** firstmate only: the default branch both remotes track (default "main"). */
-  defaultBranch?: string;
   /**
    * apply only: the budget for one delegate run in milliseconds. A delegate
    * still running at the budget is left running and reported unconfirmed.

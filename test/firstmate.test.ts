@@ -350,6 +350,24 @@ describe("firstmate surface: status classes", () => {
     expect(row?.apply).toBeUndefined();
   });
 
+  it("refuses apply for a missing clone as a not-installed manager", async () => {
+    const env = createEnv();
+    env.writeFake("git", "exit 1");
+    env.writeFake("gh", "exit 1");
+    env.writeConfig({
+      surfaces: { firstmate: { clonePath: join(env.root, "missing") } },
+    });
+    const report = await applyJson(env, []);
+    expect(report.plan).toHaveLength(0);
+    expect(report.skipped).toEqual([
+      {
+        surface: "firstmate",
+        tool: "firstmate",
+        reason: "the surface's manager is not installed",
+      },
+    ]);
+  });
+
   it("reports a missing clone as one not-installed row", async () => {
     const env = createEnv();
     env.writeFake("git", "exit 1");
@@ -362,8 +380,11 @@ describe("firstmate surface: status classes", () => {
     ]);
   });
 
-  it("keeps the row with surviving facts and a verbatim error when a fetch fails", async () => {
+  it("keeps the row with surviving facts and a verbatim error when a fetch fails, never classifying from a stale ref", async () => {
     const fixture = buildFixture("fast-forward");
+    // The clone already holds an upstream ref from an earlier fetch; a
+    // failed fetch must not classify from it.
+    git(fixture.clone, "fetch", "-q", "upstream");
     git(
       fixture.clone,
       "remote",
@@ -374,6 +395,7 @@ describe("firstmate surface: status classes", () => {
     const model = await statusJson(firstmateEnv(fixture));
     const row = model.tools.find((tool) => tool.tool === "firstmate");
     expect(row).toMatchObject({ installed: true, version: fixture.forkSha });
+    expect(row?.latest).toBeUndefined();
     expect(row?.tier).toBeUndefined();
     expect(row?.apply).toBeUndefined();
     expect(model.errors?.[0]).toMatchObject({
@@ -477,9 +499,6 @@ describe("firstmate surface: apply", () => {
       exit: 0,
       pin: `git -C ${fixture.clone} push --force origin ${fixture.forkSha}:refs/heads/main`,
     });
-    // gh's own words - the pull request URL - are reported verbatim.
-    const output = report.output as Array<Record<string, string>>;
-    expect(output.some((row) => row.detail.includes("pull/7"))).toBe(true);
   });
 
   it("executes the clean rebase: pushes the rebased branch through the gate and discards the scratch", async () => {
@@ -513,13 +532,6 @@ describe("firstmate surface: apply", () => {
     expect(
       git(fixture.clone, "worktree", "list").trim().split("\n"),
     ).toHaveLength(1);
-    // The gate's own words are in the report, verbatim.
-    const output = report.output as Array<Record<string, string>>;
-    expect(
-      output.some((row) =>
-        row.detail.includes("no-mistakes: pipeline started"),
-      ),
-    ).toBe(true);
   });
 
   it("refuses a conflicting sync with the conflicting files, and journals nothing", async () => {

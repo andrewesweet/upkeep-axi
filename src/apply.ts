@@ -66,7 +66,7 @@ export interface ApplyResultRow {
   pin?: string;
 }
 
-/** Verbatim delegate output, surfaced for every outcome that printed. */
+/** Verbatim delegate output for refused or unconfirmed rows. */
 export interface DelegateOutputRow {
   surface: string;
   tool: string;
@@ -285,7 +285,7 @@ export async function executePlan(
         before: row.before,
         pin: row.pin,
       });
-      if (outcome.output.trim()) {
+      if (outcome.outcome !== "applied" && outcome.output.trim()) {
         output.push({
           surface: row.surface,
           tool: row.tool,

@@ -45,7 +45,7 @@ Absent data stays absent: an unknown latest version means no `latest` and no `ti
 ## Verbs
 
 - `upkeep-axi status` - read-only inventory (the default command). Flags: `--surface <id[,id...]>`, `--since <cursor>`, `--changed-only`, `--config <path>`, `--json`, `--help`. `--since <cursor>` (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; `--changed-only` reports rows whose installed version differs from the journal's newest record of them (an empty journal reports everything). Given both, `--since` decides.
-- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported verbatim and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. The delegate's own output is reported verbatim for every outcome that printed - for the Firstmate sync, the gate's words and the pull request URL. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
+- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported verbatim and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. A refused or unconfirmed delegate's own output is reported verbatim. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
 - `upkeep-axi journal` - print the append-only JSONL journal at `$XDG_STATE_HOME/upkeep-axi/journal.jsonl` (default `~/.local/state`): one record per tool per executed apply (`surface,tool,before,after,tier,command,exit,duration_ms,pin,started_at`, plus `id`), refusals included.
 - `upkeep-axi --help` - top-level help. `-v`/`-V`/`--version` print the bare version.
 
@@ -80,7 +80,7 @@ Surfaces whose latest version lives only in the tool's own update announcement (
 
 ### The Firstmate fork sync
 
-The `firstmate` surface reads the local clone (config `clonePath`, default `/home/andre/tools/firstmate`): it fetches both remotes (`upstreamRemote`, default `upstream`; `forkRemote`, default `origin`) and counts the commits each is ahead of the other on the default branch (`defaultBranch`, default `main`). When both sides have commits the other lacks, a trial rebase of the fork's bespoke commits onto upstream main runs in a scratch worktree under the tool's own state directory (`$XDG_STATE_HOME/upkeep-axi/firstmate-sync/`), discarded afterwards; the clone's working tree and branches are never touched. The class carries the tier: `major` for a rebase (and its stopped case), `minor` for a pure fast-forward, `none` when current.
+The `firstmate` surface reads the local clone (config `clonePath`, default `/home/andre/tools/firstmate`): it fetches both remotes (`upstream` and `origin`) and counts the commits each is ahead of the other on `main`; a remote whose fetch failed is not read, so a stale ref never classifies. When both sides have commits the other lacks, a trial rebase of the fork's bespoke commits onto upstream main runs in a scratch worktree under the tool's own state directory (`$XDG_STATE_HOME/upkeep-axi/firstmate-sync/`), discarded afterwards; the clone's working tree and branches are never touched. The class carries the tier: `major` for a rebase (and its stopped case), `minor` for a pure fast-forward, `none` when current.
 
 `apply firstmate` never touches the clone or fork `main`:
 
@@ -132,7 +132,7 @@ A missing default file means: every registry surface enabled, no per-tool entrie
 - `git` - accepted for watched-tools schema compatibility only; the firstmate surface describes its one subject with surface-level options, not per-tool entries.
 - `rebootRequiredPath` - apt surface only: path of the reboot-required flag; defaults to `/var/run/reboot-required`.
 - `applyTimeoutMs` - per-surface budget for each apply delegate, a positive integer of milliseconds; defaults to `900000`.
-- `clonePath` / `upstreamRemote` / `forkRemote` / `defaultBranch` - firstmate surface only: the local clone of the fork (default `/home/andre/tools/firstmate`), the upstream remote name (default `upstream`), the fork remote name (default `origin`), and the default branch (default `main`).
+- `clonePath` - firstmate surface only: the local clone of the fork (default `/home/andre/tools/firstmate`); its remotes `upstream`/`origin` and branch `main` are fixed.
 
 A configured entry the manager does not know reports `installed=false`. A malformed config is a usage error, never silently ignored.
 
