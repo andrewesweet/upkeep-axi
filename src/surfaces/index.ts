@@ -1,7 +1,13 @@
 import { AxiError } from "axi-sdk-js";
 import type { Surface } from "../types.js";
+import { claudeSurface } from "./claude.js";
+import { codexSurface } from "./codex.js";
+import { herdrSurface } from "./herdr.js";
 import { miseSurface } from "./mise.js";
+import { noMistakesSurface } from "./nomistakes.js";
 import { npmSurface } from "./npm.js";
+import { opencodeSurface } from "./opencode.js";
+import { piSurface } from "./pi.js";
 import { uvSurface } from "./uv.js";
 
 /**
@@ -9,7 +15,17 @@ import { uvSurface } from "./uv.js";
  * and is never sorted. Adding a surface is one module plus one registry
  * entry; config only toggles or parameterizes what is here.
  */
-export const SURFACE_REGISTRY: Surface[] = [npmSurface, miseSurface, uvSurface];
+export const SURFACE_REGISTRY: Surface[] = [
+  npmSurface,
+  miseSurface,
+  uvSurface,
+  claudeSurface,
+  codexSurface,
+  opencodeSurface,
+  piSurface,
+  herdrSurface,
+  noMistakesSurface,
+];
 
 /**
  * Resolve the requested surfaces. A filter keeps registry order (never the

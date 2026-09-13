@@ -27,9 +27,10 @@ describe("status (TOON default)", () => {
       "description: Report workstation update inventory across surfaces.",
     );
     expect(out).toContain("generatedAt: ");
-    // One row per tool, fixed columns: 5 npm + 3 mise + 2 uv.
+    // One row per tool, fixed columns:
+    // 5 npm + 3 mise + 2 uv + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes.
     expect(out).toContain(
-      "tools[10]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[24]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     // npm rows: tier none, minor, unparseable-as-major, and unknown latest.
     expect(out).toContain(
@@ -70,9 +71,61 @@ describe("status (TOON default)", () => {
     expect(out).toContain(
       "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0",
     );
-    // Registry order: all npm rows before mise rows before uv rows.
+    // Claude Code itself pins via its native installer; plugin versions come
+    // from the plugin manifest or the installer's record; enabled but not
+    // installed plugins report only their absence; marketplaces report their
+    // own update command.
+    expect(out).toContain(
+      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+    );
+    expect(out).toContain(
+      "  claude,gopls-lsp@claude-plugins-official,true,1.2.0,null,null,claude plugin update gopls-lsp@claude-plugins-official,null",
+    );
+    expect(out).toContain(
+      "  claude,context7@claude-plugins-official,true,3deb821cb71c,null,null,claude plugin update context7@claude-plugins-official,null",
+    );
+    expect(out).toContain(
+      "  claude,ghost-plugin@ghost-market,false,null,null,null,null,null",
+    );
+    expect(out).toContain(
+      "  claude,claude-plugins-official,true,null,null,null,claude plugin marketplace update claude-plugins-official,null",
+    );
+    expect(out).toContain(
+      "  claude,caveman,true,null,null,null,claude plugin marketplace update caveman,null",
+    );
+    // Codex reads its latest from the npm registry Codex's docs name.
+    expect(out).toContain(
+      "  codex,codex,true,0.154.0,0.155.0,minor,npm install -g @openai/codex@latest,npm install -g @openai/codex@0.154.0",
+    );
+    expect(out).toContain(
+      "  opencode,opencode,true,1.18.13,null,null,opencode upgrade,opencode upgrade 1.18.13",
+    );
+    // pi list reports install sources, not versions, so package rows carry no
+    // version; pi itself pins nothing (no vendor pin command). TOON quotes
+    // values containing its delimiter characters.
+    expect(out).toContain("  pi,pi,true,0.85.1,null,null,pi update self,null");
+    expect(out).toContain(
+      '  pi,"github:owner/some-pi-ext",true,null,null,null,"pi update github:owner/some-pi-ext",null',
+    );
+    // Herdr plugins are inventory only: herdr exposes no plugin updater.
+    expect(out).toContain(
+      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+    );
+    expect(out).toContain("  herdr,annotate,true,0.4.0,null,null,null,null");
+    expect(out).toContain("  herdr,collie,true,1.8.0,null,null,null,null");
+    expect(out).toContain(
+      "  no-mistakes,no-mistakes,true,1.72.0,null,null,no-mistakes update,null",
+    );
+    // Registry order: all npm rows before mise rows before uv rows, and the
+    // agent tooling surfaces after them in declaration order.
     expect(out.indexOf("  npm,")).toBeLessThan(out.indexOf("  mise,"));
     expect(out.indexOf("  mise,")).toBeLessThan(out.indexOf("  uv,"));
+    expect(out.indexOf("  uv,")).toBeLessThan(out.indexOf("  claude,"));
+    expect(out.indexOf("  claude,")).toBeLessThan(out.indexOf("  codex,"));
+    expect(out.indexOf("  codex,")).toBeLessThan(out.indexOf("  opencode,"));
+    expect(out.indexOf("  opencode,")).toBeLessThan(out.indexOf("  pi,"));
+    expect(out.indexOf("  pi,")).toBeLessThan(out.indexOf("  herdr,"));
+    expect(out.indexOf("  herdr,")).toBeLessThan(out.indexOf("  no-mistakes,"));
     // Sparse blocks stay absent when there is nothing to report.
     expect(out).not.toContain("skew[");
     expect(out).not.toContain("announce[");
@@ -89,7 +142,7 @@ describe("status (TOON default)", () => {
     const result = await runCli([], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[10]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[24]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
   });
 
@@ -100,7 +153,7 @@ describe("status (TOON default)", () => {
     expect(all.code).toBe(0);
     expect(all.stdout).not.toContain("  uv,");
     expect(all.stdout).toContain(
-      "tools[8]{surface,tool,installed,version,latest,tier,apply,pin}:",
+      "tools[22]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     const scoped = await runCli(
       ["status", "--surface", "npm,mise"],
@@ -319,6 +372,231 @@ exit 1`,
   });
 });
 
+describe("agent tooling surfaces", () => {
+  it("reports a claude state file that does not parse verbatim and keeps surviving facts", async () => {
+    const fake = stdEnv();
+    fake.writeFakeFile(".claude/settings.json", "{not json");
+    const result = await runCli(["status", "--surface", "claude"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(result.stdout).toContain(
+      "claude,claude,claude settings.json is not valid JSON",
+    );
+    expect(result.stdout).toContain(
+      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+    );
+    // The enabled list is unreadable, so no plugin row is claimed; the
+    // marketplaces come from their own file and survive.
+    expect(result.stdout).toContain(
+      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  claude,claude-plugins-official,true,null,null,null,claude plugin marketplace update claude-plugins-official,null",
+    );
+    expect(result.stdout).not.toContain("gopls-lsp");
+  });
+
+  it("keeps codex latest and tier absent when the npm registry read fails", async () => {
+    const fake = stdEnv();
+    fake.writeFake(
+      "npm",
+      `if [ "$1" = "view" ]; then
+  echo "npm fake: registry unreachable" >&2
+  exit 1
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "codex"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  codex,codex,true,0.154.0,null,null,npm install -g @openai/codex@latest,npm install -g @openai/codex@0.154.0",
+    );
+  });
+
+  it("reports a failed pi list verbatim and an empty pi list as absence", async () => {
+    const failing = createEnv();
+    failing.writeFake(
+      "pi",
+      `if [ "$1" = "--version" ]; then
+  echo "0.85.1"
+  exit 0
+fi
+if [ "$1" = "list" ]; then
+  echo "pi fake: settings unreadable" >&2
+  exit 3
+fi
+exit 1`,
+    );
+    const failed = await runCli(["status", "--surface", "pi"], failing.env());
+    expect(failed.code).toBe(0);
+    expect(failed.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(failed.stdout).toContain("pi,pi,pi list failed (exit 3)");
+    expect(failed.stdout).toContain("  pi,pi,true,0.85.1,null,null,null,null");
+
+    const empty = createEnv();
+    empty.writeFake(
+      "pi",
+      `if [ "$1" = "--version" ]; then
+  echo "0.85.1"
+  exit 0
+fi
+if [ "$1" = "list" ]; then
+  echo "No packages installed."
+  exit 0
+fi
+exit 1`,
+    );
+    const emptyResult = await runCli(
+      ["status", "--surface", "pi"],
+      empty.env(),
+    );
+    expect(emptyResult.code).toBe(0);
+    expect(emptyResult.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(emptyResult.stdout).toContain(
+      "  pi,pi,true,0.85.1,null,null,pi update self,null",
+    );
+  });
+
+  it("reports herdr without a plugins.json as one row and a broken one verbatim", async () => {
+    const bare = createEnv();
+    bare.writeFake(
+      "herdr",
+      `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+exit 1`,
+    );
+    const missing = await runCli(["status", "--surface", "herdr"], bare.env());
+    expect(missing.code).toBe(0);
+    expect(missing.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(missing.stdout).toContain(
+      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+    );
+
+    const broken = createEnv();
+    broken.writeFake(
+      "herdr",
+      `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+exit 1`,
+    );
+    broken.writeFakeFile("xdg/herdr/plugins.json", "[{not json");
+    const brokenResult = await runCli(
+      ["status", "--surface", "herdr"],
+      broken.env(),
+    );
+    expect(brokenResult.code).toBe(0);
+    expect(brokenResult.stdout).toContain("errors[1]{surface,tool,detail}:");
+    expect(brokenResult.stdout).toContain(
+      "herdr,herdr,herdr plugins.json is not valid JSON",
+    );
+    expect(brokenResult.stdout).toContain(
+      "  herdr,herdr,true,0.9.0,null,null,herdr update,null",
+    );
+  });
+
+  it("reports each missing agent tool as its own not-installed row", async () => {
+    const bare = createEnv();
+    const result = await runCli(
+      ["status", "--surface", "claude,codex,opencode,pi,herdr,no-mistakes"],
+      bare.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[6]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    for (const tool of [
+      "claude",
+      "codex",
+      "opencode",
+      "pi",
+      "herdr",
+      "no-mistakes",
+    ]) {
+      expect(result.stdout).toContain(
+        `  ${tool},${tool},false,null,null,null,null,null`,
+      );
+    }
+  });
+
+  it("carries no-mistakes' own announcement via the watched-tools args", async () => {
+    const fake = stdEnv();
+    fake.writeConfig({
+      surfaces: {
+        "no-mistakes": {
+          tools: [
+            {
+              name: "no-mistakes",
+              command: "no-mistakes",
+              version_args: ["--version"],
+              announce_args: ["--help"],
+              announce_pattern:
+                "A new version of no-mistakes is available: [^ ]+ -> [^ ]+",
+            },
+          ],
+        },
+      },
+    });
+    const result = await runCli(
+      ["status", "--surface", "no-mistakes"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("announce[1]{surface,tool,claim}:");
+    expect(result.stdout).toContain(
+      "A new version of no-mistakes is available: 1.72.0 -> 1.73.0",
+    );
+    expect(result.stdout).toContain(
+      "  no-mistakes,no-mistakes,true,1.72.0,null,null,no-mistakes update,null",
+    );
+  });
+
+  it("carries opencode's own announcement when configured", async () => {
+    const fake = stdEnv();
+    fake.writeFake(
+      "opencode",
+      `if [ "$1" = "--version" ]; then
+  echo "1.18.13"
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  echo "opencode upgrade available 1.18.13 -> 1.19.0"
+  exit 0
+fi
+exit 1`,
+    );
+    fake.writeConfig({
+      surfaces: {
+        opencode: {
+          tools: [
+            {
+              name: "opencode",
+              announce_args: ["--help"],
+              announce_pattern: "opencode upgrade available [^ ]+ -> [^ ]+",
+            },
+          ],
+        },
+      },
+    });
+    const result = await runCli(
+      ["status", "--surface", "opencode"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("announce[1]{surface,tool,claim}:");
+    expect(result.stdout).toContain(
+      "opencode upgrade available 1.18.13 -> 1.19.0",
+    );
+  });
+});
+
 describe("status --json", () => {
   it("emits the normalized model with the same spelling", async () => {
     const fake = stdEnv();
@@ -333,7 +611,7 @@ describe("status --json", () => {
     };
     expect(model.schemaVersion).toBe(1);
     expect(typeof model.generatedAt).toBe("string");
-    expect(model.tools).toHaveLength(10);
+    expect(model.tools).toHaveLength(24);
     const typescript = model.tools.find((row) => row.tool === "typescript");
     expect(typescript).toEqual({
       surface: "npm",
@@ -350,6 +628,27 @@ describe("status --json", () => {
       surface: "mise",
       tool: "ghost",
       installed: false,
+    });
+    // New surfaces emit the same normalized shape; absent facts stay absent
+    // (no pin the vendor cannot do, no latest no honest probe exposes).
+    const gopls = model.tools.find(
+      (row) => row.tool === "gopls-lsp@claude-plugins-official",
+    );
+    expect(gopls).toEqual({
+      surface: "claude",
+      tool: "gopls-lsp@claude-plugins-official",
+      installed: true,
+      version: "1.2.0",
+      apply: "claude plugin update gopls-lsp@claude-plugins-official",
+    });
+    const annotate = model.tools.find(
+      (row) => row.surface === "herdr" && row.tool === "annotate",
+    );
+    expect(annotate).toEqual({
+      surface: "herdr",
+      tool: "annotate",
+      installed: true,
+      version: "0.4.0",
     });
     const zizmor = model.tools.find((row) => row.tool === "zizmor");
     expect(zizmor?.latest).toBeUndefined();
@@ -421,7 +720,9 @@ describe("usage errors", () => {
     const result = await runCli(["status", "--surface", "nope"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("Unknown surface: nope");
-    expect(result.stdout).toContain("Known surfaces: npm, mise, uv");
+    expect(result.stdout).toContain(
+      "Known surfaces: npm, mise, uv, claude, codex, opencode, pi, herdr, no-mistakes",
+    );
   });
 
   it("rejects an unknown flag by naming the valid flags", async () => {
@@ -530,7 +831,7 @@ describe("config resolution", () => {
     const result = await runCli(["status"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain(
-      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv)",
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, claude, codex, opencode, pi, herdr, no-mistakes)",
     );
   });
 
