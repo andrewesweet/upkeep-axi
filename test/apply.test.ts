@@ -154,6 +154,16 @@ describe("apply planning (no --execute)", () => {
     );
   });
 
+  it("an empty plan states itself under --execute too and exits 0", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["apply", "skills", "--execute"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "Nothing to apply: every selected row was skipped; see the skipped block",
+    );
+    expect(result.stdout).not.toContain("upkeep-axi journal");
+  });
+
   it("a named tool status does not report is a refusal", async () => {
     const fake = stdEnv();
     const result = await runCli(

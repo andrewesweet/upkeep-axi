@@ -49,7 +49,7 @@ Default output is [TOON](https://toonformat.dev/), structured for agents: one `t
 
 Absent data stays absent: an unknown latest version means no `latest` and no `tier`, never a guess.
 
-`--json` emits the same model with the same spellings. `--fields <a,b,c>` projects every `tools[]` row to the named fields, in that order (`surface, tool, installed, version, latest, tier, in_use, apply, pin`), shared by TOON and JSON; an unknown field is a usage error. Stray positionals are refused: `upkeep-axi status npm` is a usage error that suggests `status --surface npm`. The `help[]` block follows the invocation: a scoped run never suggests scoping again, and the apply hint appears only when known gaps exist. Exit codes: `0` success, `1` error (including an executed apply where any row was refused or unconfirmed), `2` usage error.
+`--json` emits the same model with the same spellings. `--fields <a,b,c>` projects every `tools[]` row to the named fields, in that order (`surface, tool, installed, version, latest, tier, in_use, apply, pin`), shared by TOON and JSON; an unknown field is a usage error. Stray positionals are refused: `upkeep-axi status npm` is a usage error that suggests `status --surface npm`. The `help[]` block follows the invocation: a scoped run never suggests scoping again, and the apply hint appears only when known gaps exist that apply can plan (apt is report-only: a scoped apt run with gaps hints its `sudo apt-get` command instead, and apt-only gaps never suggest apply). Exit codes: `0` success, `1` error (including an executed apply where any row was refused or unconfirmed), `2` usage error.
 
 ## Verbs
 

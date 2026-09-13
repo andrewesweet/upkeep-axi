@@ -257,19 +257,31 @@ export interface StatusRenderOptions extends StatusModelOptions, ToonOptions {
 
 /**
  * Help derived from the invocation and the rows: the scoping hint only
- * when unscoped, the apply hint only when known gaps exist.
+ * when unscoped, the apply hint only when known gaps exist that apply can
+ * plan. apt is report-only, so its gaps hint the row's own command instead.
  */
-function statusHelpHints(options: {
-  scoped?: boolean;
-  singleSurface?: string;
-  hasGaps: boolean;
-}): string[] {
+function statusHelpHints(
+  rows: ToolStatus[],
+  options: { scoped?: boolean; singleSurface?: string },
+): string[] {
   const hints: string[] = [];
-  if (options.hasGaps) {
+  const gaps = rows.filter((row) => row.tier && row.tier !== "none");
+  if (options.singleSurface === "apt") {
+    const commands = new Set(
+      gaps.flatMap((row) => (row.applyCommand ? [row.applyCommand] : [])),
+    );
+    for (const command of commands) {
+      hints.push(`Run \`${command}\` yourself: apt is report-only`);
+    }
+  } else if (options.singleSurface) {
+    if (gaps.length > 0) {
+      hints.push(
+        `Run \`upkeep-axi apply ${options.singleSurface}\` to plan its gaps`,
+      );
+    }
+  } else if (gaps.some((row) => row.surface !== "apt")) {
     hints.push(
-      options.singleSurface
-        ? `Run \`upkeep-axi apply ${options.singleSurface}\` to plan its gaps`
-        : "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
     );
   }
   if (!options.scoped) {
@@ -295,10 +307,9 @@ export function renderStatusToon(
   };
   let help: string[];
   if (report.tools.length > 0) {
-    help = statusHelpHints({
+    help = statusHelpHints(report.tools, {
       scoped: options.scoped,
       singleSurface: options.singleSurface,
-      hasGaps: report.tools.some((row) => row.tier && row.tier !== "none"),
     });
   } else {
     help = options.emptyHelp ?? [
@@ -403,7 +414,14 @@ export function renderApplyToon(
     ...applyModel(report, options),
   };
   const help: string[] = [];
-  if (report.mode === "executed") {
+  if (report.plan.length === 0) {
+    help.push(
+      ...(options.emptyPlanHelp ?? [
+        "Nothing to apply: no known gaps",
+        "Run `upkeep-axi status` to see every surface and its apply commands",
+      ]),
+    );
+  } else if (report.mode === "executed") {
     if (report.results?.some((row) => row.outcome !== "applied")) {
       help.push(
         "Exit is 1: every row is in results with its outcome; refused and unconfirmed delegates were not applied",
@@ -420,15 +438,8 @@ export function renderApplyToon(
       );
     }
     help.push(...EXECUTED_HELP);
-  } else if (report.plan.length > 0) {
-    help.push(...PLAN_HELP);
   } else {
-    help.push(
-      ...(options.emptyPlanHelp ?? [
-        "Nothing to apply: no known gaps",
-        "Run `upkeep-axi status` to see every surface and its apply commands",
-      ]),
-    );
+    help.push(...PLAN_HELP);
   }
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)

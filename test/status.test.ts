@@ -1230,6 +1230,29 @@ describe("AXI output discipline", () => {
     expect(result.stdout).toContain("help[2]:");
   });
 
+  it("never hints apply for apt: a scoped apt gap hints the row's own command", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--surface", "apt"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply");
+    expect(result.stdout).toContain(
+      "Run `sudo apt-get update && sudo apt-get upgrade` yourself: apt is report-only",
+    );
+    expect(result.stdout).toContain("help[2]:");
+  });
+
+  it("skips the apply hint when the only gaps are apt rows", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["status", "--surface", "apt,skills"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("  apt,ripgrep,");
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply");
+    expect(result.stdout).toContain("help[1]:");
+  });
+
   it("derives the help from the rows: no gaps drops the update hint", async () => {
     const fake = stdEnv();
     const result = await runCli(
