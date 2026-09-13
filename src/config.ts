@@ -2,10 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AxiError } from "axi-sdk-js";
+import { SURFACE_REGISTRY } from "./surfaces/index.js";
 import type { SurfaceConfig, UpkeepConfig } from "./types.js";
-
-/** Environment override for the config file location. */
-export const CONFIG_ENV = "UPKEEP_AXI_CONFIG";
 
 /**
  * The tool-owned config file: `$XDG_CONFIG_HOME/upkeep-axi/config.json`
@@ -55,10 +53,18 @@ export function loadConfig(path: string): UpkeepConfig {
       "VALIDATION_ERROR",
     );
   }
+  const known = SURFACE_REGISTRY.map((surface) => surface.id);
   const surfaces: Record<string, SurfaceConfig> = {};
   for (const [id, value] of Object.entries(
     root.surfaces as Record<string, unknown>,
   )) {
+    if (!known.includes(id)) {
+      throw configError(
+        `surfaces.${id}`,
+        `is not a known surface (known: ${known.join(", ")})`,
+        path,
+      );
+    }
     surfaces[id] = validateSurface(id, value, path);
   }
   return { surfaces };
@@ -75,13 +81,6 @@ function validateSurface(
   const entry = value as Record<string, unknown>;
   if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") {
     throw configError(`surfaces.${id}.enabled`, "must be a boolean", path);
-  }
-  if (entry.command !== undefined && !isNonEmptyString(entry.command)) {
-    throw configError(
-      `surfaces.${id}.command`,
-      "must be a non-empty string",
-      path,
-    );
   }
   if (entry.tools !== undefined) {
     if (!Array.isArray(entry.tools)) {

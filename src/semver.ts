@@ -42,8 +42,9 @@ export function compareVersions(
 /**
  * Tier of the gap from installed to latest.
  *
- * Equal versions (by parsed parts, so `1.2` equals `1.2.0`) are `none`.
- * When both versions parse, the tier is the highest changed component.
+ * Equal versions (by parsed parts, so `1.2` equals `1.2.0`) are `none`, and
+ * so is an installed version newer than latest: a current tool never reads
+ * as behind. When latest is newer, the tier is the highest changed component.
  * When a gap exists but either version does not parse, the tier is `major`:
  * an unknown-shape update must never read as casual. The caller passes
  * undefined when a version is unknown and gets undefined back - absent data
@@ -57,8 +58,7 @@ export function tierBetween(
   const a = parseVersion(installed);
   const b = parseVersion(latest);
   if (!a || !b) return "major";
-  const order = compareVersions(a, b);
-  if (order === 0) return "none";
+  if (compareVersions(a, b) >= 0) return "none";
   if (b[0] !== a[0]) return "major";
   if (b[1] !== a[1]) return "minor";
   return "patch";

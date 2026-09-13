@@ -16,7 +16,7 @@ generatedAt: "2026-09-13T11:02:36.440Z"
 schemaVersion: 1
 tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:
   npm,typescript,true,5.6.3,5.7.2,minor,npm install -g typescript@latest,npm install -g typescript@5.6.3
-  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use node@20.11.0
+  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0
   uv,ruff,true,0.3.4,0.9.0,minor,uv tool upgrade ruff,uv tool install ruff==0.3.4
 skew[1]{surface,tool,command,resolvedPath,resolvedVersion,newerPath,newerVersion}:
   npm,esbuild,esbuild,~/.local/bin/esbuild,0.19.0,~/.npm-global/bin/esbuild,0.20.0
@@ -29,7 +29,7 @@ help[2]:
 
 Default output is [TOON](https://toonformat.dev/), structured for agents: one `tools[]` row per tool, plus sparse blocks that only appear when they have something to say:
 
-- `tools[]` - one row per tool: `installed`, installed `version`, available `latest`, semver `tier` (`none`/`patch`/`minor`/`major`; a gap whose versions do not both parse is `major`), and the exact `apply` and `pin` commands.
+- `tools[]` - one row per tool: `installed`, installed `version`, available `latest`, semver `tier` (`none`/`patch`/`minor`/`major`; a gap whose versions do not both parse is `major`), and the exact `apply` and `pin` commands. An installed version newer than `latest` is `none`: a current tool never reads as behind.
 - `skew[]` - "update not in effect": every copy of the command on `PATH` was asked its version, and a newer copy sits behind the resolved one.
 - `announce[]` - the tool's own update announcement, matched by the configured pattern; upkeep-axi reports the claim verbatim and adds nothing.
 - `errors[]` - a manager probe that failed, reported verbatim.
@@ -63,7 +63,7 @@ A manager that is missing reports one `installed=false` row. Adding a surface is
 The tool owns its config file, installed by host-up:
 
 ```
-$UPKEEP_AXI_CONFIG, or --config <path>,
+--config <path>,
 or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
 ```
 

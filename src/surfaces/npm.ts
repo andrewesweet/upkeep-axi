@@ -19,7 +19,7 @@ interface NpmLsOutput {
 }
 
 function managerPath(ctx: SurfaceContext): string | undefined {
-  return pathCandidates(ctx.surface.command ?? "npm", ctx.env)[0];
+  return pathCandidates("npm", ctx.env)[0];
 }
 
 /**

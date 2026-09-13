@@ -12,8 +12,14 @@ import {
 const SURFACE_ID = "mise";
 const LS_TIMEOUT_MS = 15_000;
 
+interface MiseLsEntry {
+  version?: unknown;
+  installed?: unknown;
+  active?: unknown;
+}
+
 interface MiseLsOutput {
-  [tool: string]: Array<{ version?: unknown; installed?: unknown }>;
+  [tool: string]: MiseLsEntry[];
 }
 
 interface MiseOutdatedEntry {
@@ -21,14 +27,17 @@ interface MiseOutdatedEntry {
 }
 
 function managerPath(ctx: SurfaceContext): string | undefined {
-  return pathCandidates(ctx.surface.command ?? "mise", ctx.env)[0];
+  return pathCandidates("mise", ctx.env)[0];
 }
 
 /**
  * mise-managed tools plus mise itself. Installed tools and versions come from
  * `mise ls --json`; available versions come from `mise outdated --json`, which
  * lists only tools it found updates for - a tool absent there keeps its
- * latest and tier absent. mise itself reports `mise self-update` as its apply
+ * latest and tier absent. A tool with several installed versions reports one
+ * row: the active version, or the last listed when none is active, which is
+ * the version `mise outdated` judges. Pins target the global config, where
+ * host-wide tools live. mise itself reports `mise self-update` as its apply
  * command; its latest stays absent because no honest cheap probe exists.
  */
 export const miseSurface: Surface = {
@@ -67,33 +76,36 @@ export const miseSurface: Surface = {
     const rows: ToolStatus[] = [];
     for (const [tool, entries] of Object.entries(installed)) {
       if (!Array.isArray(entries)) continue;
-      for (const entry of entries) {
-        if (entry === null || typeof entry !== "object") continue;
-        const installedFlag = entry.installed !== false;
-        // A not-installed entry reports only its absence: a version here
-        // would be mise's requested version, not an installed fact.
-        if (!installedFlag) {
-          rows.push({ surface: SURFACE_ID, tool, installed: false });
-          continue;
-        }
-        const version =
-          typeof entry.version === "string" ? entry.version : undefined;
-        const latestRaw =
-          outdatedMap && typeof outdatedMap === "object"
-            ? outdatedMap[tool]?.latest
-            : undefined;
-        const latest = typeof latestRaw === "string" ? latestRaw : undefined;
-        rows.push({
-          surface: SURFACE_ID,
-          tool,
-          installed: true,
-          version,
-          latest,
-          tier: tierBetween(version, latest),
-          applyCommand: `mise upgrade ${tool}`,
-          pinCommand: version ? `mise use ${tool}@${version}` : undefined,
-        });
+      const valid = entries.filter(
+        (entry): entry is MiseLsEntry =>
+          entry !== null && typeof entry === "object",
+      );
+      const entry =
+        valid.find((candidate) => candidate.active === true) ?? valid.at(-1);
+      if (!entry) continue;
+      // A not-installed entry reports only its absence: a version here
+      // would be mise's requested version, not an installed fact.
+      if (entry.installed === false) {
+        rows.push({ surface: SURFACE_ID, tool, installed: false });
+        continue;
       }
+      const version =
+        typeof entry.version === "string" ? entry.version : undefined;
+      const latestRaw =
+        outdatedMap && typeof outdatedMap === "object"
+          ? outdatedMap[tool]?.latest
+          : undefined;
+      const latest = typeof latestRaw === "string" ? latestRaw : undefined;
+      rows.push({
+        surface: SURFACE_ID,
+        tool,
+        installed: true,
+        version,
+        latest,
+        tier: tierBetween(version, latest),
+        applyCommand: `mise upgrade ${tool}`,
+        pinCommand: version ? `mise use -g ${tool}@${version}` : undefined,
+      });
     }
     if (!rows.some((row) => row.tool === SURFACE_ID)) {
       rows.unshift({

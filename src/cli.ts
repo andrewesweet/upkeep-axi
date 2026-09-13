@@ -1,5 +1,5 @@
 import { AxiError, runAxiCli } from "axi-sdk-js";
-import { CONFIG_ENV, defaultConfigPath, loadConfig } from "./config.js";
+import { defaultConfigPath, loadConfig } from "./config.js";
 import { assertNotRoot } from "./exec.js";
 import {
   SCHEMA_VERSION,
@@ -34,7 +34,7 @@ export const STATUS_HELP = `usage: upkeep-axi status [flags]
 Report update inventory for every enabled surface: installed and available versions, semver tier, PATH skew, the tool's own update announcements, and the exact apply and pin commands.
 flags[3]:
   --surface <id[,id...]>, --config <path>, --json
-  config: $UPKEEP_AXI_CONFIG or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
+  config: --config <path> or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
 examples[4]:
   upkeep-axi status
   upkeep-axi status --surface npm
@@ -122,9 +122,7 @@ async function statusCommand(
       ],
     );
   }
-  const config = loadConfig(
-    configPath ?? process.env[CONFIG_ENV] ?? defaultConfigPath(),
-  );
+  const config = loadConfig(configPath ?? defaultConfigPath());
   const surfaces = resolveSurfaces(surfaceFilter);
   const tools = await collectStatus(config, surfaces, process.env);
   const report = {

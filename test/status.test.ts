@@ -52,7 +52,7 @@ describe("status (TOON default)", () => {
       "  mise,mise,true,2026.8.8,null,null,mise self-update,mise self-update 2026.8.8",
     );
     expect(out).toContain(
-      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use node@20.11.0",
+      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0",
     );
     expect(out).toContain("  mise,ghost,false,null,null,null,null,null");
     // A configured-not-installed mise entry reports only its absence.
@@ -68,7 +68,7 @@ describe("status (TOON default)", () => {
       "  mise,mise,true,2026.8.8,null,null,mise self-update,mise self-update 2026.8.8",
     );
     expect(out).toContain(
-      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use node@20.11.0",
+      "  mise,node,true,20.11.0,22.0.0,major,mise upgrade node,mise use -g node@20.11.0",
     );
     // Registry order: all npm rows before mise rows before uv rows.
     expect(out.indexOf("  npm,")).toBeLessThan(out.indexOf("  mise,"));
@@ -111,6 +111,72 @@ describe("status (TOON default)", () => {
       "tools[8]{surface,tool,installed,version,latest,tier,apply,pin}:",
     );
     expect(scoped.stdout).not.toContain("  uv,");
+  });
+
+  it("keeps registry order whatever the --surface spelling", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["status", "--surface", "uv,npm"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("  mise,");
+    expect(result.stdout.indexOf("  npm,")).toBeLessThan(
+      result.stdout.indexOf("  uv,"),
+    );
+  });
+
+  it("collapses several installed mise versions to the active one with a global pin", async () => {
+    const env = createEnv();
+    env.writeFake(
+      "mise",
+      `if [ "$1" = "ls" ]; then
+  echo '{"jq":[{"version":"1.8.1","installed":true,"active":false},{"version":"1.8.2","installed":true,"active":true},{"version":"1.9.0","installed":true,"active":false}],"just":[{"version":"1.57.0","installed":true,"active":false},{"version":"1.58.0","installed":true,"active":false}]}'
+  exit 0
+fi
+if [ "$1" = "outdated" ]; then
+  echo '{"jq":{"name":"jq","current":"1.8.2","latest":"1.8.3"}}'
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "2026.8.8"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "mise"], env.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  mise,jq,true,1.8.2,1.8.3,patch,mise upgrade jq,mise use -g jq@1.8.2",
+    );
+    expect(result.stdout).toContain(
+      "  mise,just,true,1.58.0,null,null,mise upgrade just,mise use -g just@1.58.0",
+    );
+  });
+
+  it("reports an installed version newer than latest as tier none", async () => {
+    const env = createEnv();
+    env.writeFake(
+      "npm",
+      `if [ "$1" = "ls" ]; then
+  echo '{"dependencies":{"ahead":{"version":"6.0.0-beta.1"}}}'
+  exit 0
+fi
+if [ "$1" = "view" ]; then
+  echo "5.9.3"
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "10.9.0"
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(["status", "--surface", "npm"], env.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "  npm,ahead,true,6.0.0-beta.1,5.9.3,none,",
+    );
   });
 
   it("reports a missing manager as one not-installed row", async () => {
@@ -432,7 +498,7 @@ describe("config resolution", () => {
     expect(result.stdout).toContain("  mise,");
   });
 
-  it("reads UPKEEP_AXI_CONFIG and --config over the default path", async () => {
+  it("reads --config over the default path", async () => {
     const fake = stdEnv();
     const alt = `${fake.root}/alt-config.json`;
     writeRawConfig(
@@ -441,17 +507,20 @@ describe("config resolution", () => {
         surfaces: { mise: { enabled: false }, uv: { enabled: false } },
       }),
     );
-    const viaEnv = await runCli(
-      ["status"],
-      fake.env({ UPKEEP_AXI_CONFIG: alt }),
-    );
-    expect(viaEnv.code).toBe(0);
-    expect(viaEnv.stdout).not.toContain("  mise,");
-    expect(viaEnv.stdout).toContain("  npm,");
-
     const viaFlag = await runCli(["status", "--config", alt], fake.env());
     expect(viaFlag.code).toBe(0);
     expect(viaFlag.stdout).not.toContain("  mise,");
+    expect(viaFlag.stdout).toContain("  npm,");
+  });
+
+  it("rejects an unknown surface id in config", async () => {
+    const fake = stdEnv();
+    fake.writeConfig({ surfaces: { npn: { enabled: false } } });
+    const result = await runCli(["status"], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv)",
+    );
   });
 
   it("rejects a config whose tools entries lack a name", async () => {

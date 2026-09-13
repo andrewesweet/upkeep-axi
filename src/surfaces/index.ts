@@ -32,5 +32,6 @@ export function resolveSurfaces(filter: string[] | undefined): Surface[] {
       ],
     );
   }
-  return unique.map((id) => known.get(id) as Surface);
+  const wanted = new Set(unique);
+  return SURFACE_REGISTRY.filter((surface) => wanted.has(surface.id));
 }

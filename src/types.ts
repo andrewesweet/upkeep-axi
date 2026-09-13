@@ -35,8 +35,6 @@ export interface ToolConfig {
 
 export interface SurfaceConfig {
   enabled?: boolean;
-  /** Manager executable override; defaults to the surface's own manager. */
-  command?: string;
   /** Per-tool entries merged over the surface's discovered tools. */
   tools?: ToolConfig[];
 }
@@ -97,22 +95,6 @@ export interface ToolStatus {
 }
 
 /**
- * Apply/pin request. The apply task finalizes the execution contract
- * (plan by default, `--execute` to act, journaling); this build refuses.
- */
-export interface MutationRequest {
-  /** Named tools within the surface; all when absent. */
-  tools?: string[];
-  /** False (default) prints the plan; true executes. */
-  execute: boolean;
-}
-
-/** Placeholder outcome; superseded by the apply task. */
-export interface MutationOutcome {
-  planned: string[];
-}
-
-/**
  * The surface module contract: one module per ecosystem.
  *
  * `detect` answers whether the surface's manager is installed. `status` is
@@ -127,9 +109,6 @@ export interface Surface {
   readonly managerTool: string;
   detect(ctx: SurfaceContext): Promise<boolean>;
   status(ctx: SurfaceContext): Promise<ToolStatus[]>;
-  apply(
-    ctx: SurfaceContext,
-    request: MutationRequest,
-  ): Promise<MutationOutcome>;
-  pin(ctx: SurfaceContext, request: MutationRequest): Promise<MutationOutcome>;
+  apply(ctx: SurfaceContext): Promise<never>;
+  pin(ctx: SurfaceContext): Promise<never>;
 }

@@ -17,7 +17,7 @@ interface UvTool {
 }
 
 function managerPath(ctx: SurfaceContext): string | undefined {
-  return pathCandidates(ctx.surface.command ?? "uv", ctx.env)[0];
+  return pathCandidates("uv", ctx.env)[0];
 }
 
 /** Parse `uv tool list` lines: `name v1.2.3`, skipping the `- bin` lines. */

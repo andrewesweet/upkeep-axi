@@ -32,7 +32,7 @@ export interface FakeEnv {
   writeFake(name: string, body: string): void;
   writeFakeIn(dir: string, name: string, body: string): void;
   writeConfig(config: unknown): string;
-  /** Base env for runCli; spread extras (e.g. UPKEEP_AXI_CONFIG) over it. */
+  /** Base env for runCli; spread extras over it. */
   env(extra?: Record<string, string>): NodeJS.ProcessEnv;
 }
 
