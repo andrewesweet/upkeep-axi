@@ -100,7 +100,8 @@ A missing default file means: every registry surface enabled, no per-tool entrie
         }
       ]
     },
-    "uv": { "enabled": false }
+    "uv": { "enabled": false },
+    "apt": { "rebootRequiredPath": "/var/run/reboot-required" }
   }
 }
 ```
@@ -110,6 +111,7 @@ A missing default file means: every registry surface enabled, no per-tool entrie
 - `version_args` - argv used to ask a copy of `command` its version; defaults to `["--version"]`.
 - `announce_pattern` / `announce_args` - run the tool with `announce_args`, match `announce_pattern`, and report the match as the tool's own claim.
 - `git` - accepted for watched-tools schema compatibility; consumed by a later surface.
+- `rebootRequiredPath` - apt surface only: path of the reboot-required flag; defaults to `/var/run/reboot-required`.
 
 A configured entry the manager does not know reports `installed=false`. A malformed config is a usage error, never silently ignored.
 
