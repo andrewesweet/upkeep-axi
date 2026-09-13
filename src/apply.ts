@@ -66,7 +66,7 @@ export interface ApplyResultRow {
   pin?: string;
 }
 
-/** Verbatim delegate output for refused or unconfirmed rows. */
+/** Verbatim delegate output, surfaced for every outcome that printed. */
 export interface DelegateOutputRow {
   surface: string;
   tool: string;
@@ -172,11 +172,17 @@ export async function buildPlan(
     if (!surface) continue;
     const delegate = surface.apply(ctxFor(config, surface, env), row);
     if (!delegate) {
-      if (explicit) {
+      // A row that knows why it cannot be applied reports that reason
+      // wherever the caller asked for it (a named surface, a named tool, or
+      // --all): a conflicting sync stops and names its files. Other
+      // delegate-less rows stay silent unless the caller named them.
+      if (explicit || row.refusal) {
         skipped.push({
           surface: row.surface,
           tool: row.tool,
-          reason: "the surface publishes no apply command for this tool",
+          reason:
+            row.refusal ??
+            "the surface publishes no apply command for this tool",
         });
       }
       continue;
@@ -279,7 +285,7 @@ export async function executePlan(
         before: row.before,
         pin: row.pin,
       });
-      if (outcome.outcome !== "applied" && outcome.output.trim()) {
+      if (outcome.output.trim()) {
         output.push({
           surface: row.surface,
           tool: row.tool,

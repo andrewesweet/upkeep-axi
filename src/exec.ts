@@ -136,7 +136,8 @@ export interface DelegateOutcome {
   /** Exit code of the failing or last step; null on spawn failure or timeout. */
   code: number | null;
   durationMs: number;
-  /** The delegate's own output at the point it stopped, verbatim. */
+  /** The delegate's own output at the point it stopped, verbatim. An
+   * applied delegate's output is everything its steps printed. */
   output: string;
 }
 
@@ -247,6 +248,7 @@ export async function runDelegate(
 ): Promise<DelegateOutcome> {
   const started = Date.now();
   const deadline = started + timeoutMs;
+  let printed = "";
   for (let index = 0; index < steps.length; index++) {
     const step = steps[index];
     const remaining = deadline - Date.now();
@@ -256,6 +258,7 @@ export async function runDelegate(
       remaining,
     );
     const output = `${stdout}${stderr}`;
+    printed += output;
     const durationMs = Date.now() - started;
     if (wait.kind === "timeout") {
       return { outcome: "unconfirmed", code: null, durationMs, output };
@@ -281,7 +284,7 @@ export async function runDelegate(
     outcome: "applied",
     code: 0,
     durationMs: Date.now() - started,
-    output: "",
+    output: printed,
   };
 }
 

@@ -30,9 +30,10 @@ describe("status (TOON default)", () => {
     expect(out).toContain("generatedAt: ");
     // One row per tool, fixed columns:
     // 5 npm + 3 mise + 2 uv + 3 cargo + 2 bun + 4 gh + 2 skills + 1 fnm + 3 apt
-    // + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes.
+    // + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes
+    // + 1 firstmate (no git on the fake PATH).
     expect(out).toContain(
-      "tools[39]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[40]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     // npm rows: tier none, minor, unparseable-as-major, and unknown latest.
     expect(out).toContain(
@@ -199,7 +200,7 @@ describe("status (TOON default)", () => {
     const result = await runCli([], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[39]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[40]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
   });
 
@@ -210,7 +211,7 @@ describe("status (TOON default)", () => {
     expect(all.code).toBe(0);
     expect(all.stdout).not.toContain("  uv,");
     expect(all.stdout).toContain(
-      "tools[37]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[38]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     const scoped = await runCli(
       ["status", "--surface", "npm,mise"],
@@ -1068,9 +1069,9 @@ describe("status --json", () => {
       skew?: unknown;
       announce?: unknown;
     };
-    expect(model.schemaVersion).toBe(2);
+    expect(model.schemaVersion).toBe(3);
     expect(typeof model.generatedAt).toBe("string");
-    expect(model.tools).toHaveLength(39);
+    expect(model.tools).toHaveLength(40);
     const typescript = model.tools.find((row) => row.tool === "typescript");
     expect(typescript).toEqual({
       surface: "npm",
@@ -1326,7 +1327,7 @@ describe("config resolution", () => {
     const result = await runCli(["status"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain(
-      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes)",
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes, firstmate)",
     );
   });
 

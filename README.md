@@ -35,6 +35,7 @@ Default output is [TOON](https://toonformat.dev/), structured for agents: one `t
 - `in_use[]` - why a tool is in use, read from `herdr agent list`, `no-mistakes runs`, and the process table (`/proc/<pid>/exe`), never from Firstmate's files. `apply` refuses an in-use tool with this reason.
 - `skew[]` - "update not in effect": every copy of the command on `PATH` was asked its version, and a newer copy sits behind the resolved one.
 - `announce[]` - the tool's own update announcement, matched by the configured pattern; upkeep-axi reports the claim verbatim and adds nothing.
+- `sync[]` - the Firstmate fork's sync facts: the class (`current`/`fast-forward`/`clean-rebase`/`conflicts`), the commits each side is ahead, the fork's GitHub slug, and - for conflicts - the conflicting files.
 - `errors[]` - a manager probe that failed, reported verbatim.
 
 Absent data stays absent: an unknown latest version means no `latest` and no `tier`, never a guess.
@@ -44,7 +45,7 @@ Absent data stays absent: an unknown latest version means no `latest` and no `ti
 ## Verbs
 
 - `upkeep-axi status` - read-only inventory (the default command). Flags: `--surface <id[,id...]>`, `--since <cursor>`, `--changed-only`, `--config <path>`, `--json`, `--help`. `--since <cursor>` (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; `--changed-only` reports rows whose installed version differs from the journal's newest record of them (an empty journal reports everything). Given both, `--since` decides.
-- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported verbatim and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
+- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported verbatim and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. The delegate's own output is reported verbatim for every outcome that printed - for the Firstmate sync, the gate's words and the pull request URL. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
 - `upkeep-axi journal` - print the append-only JSONL journal at `$XDG_STATE_HOME/upkeep-axi/journal.jsonl` (default `~/.local/state`): one record per tool per executed apply (`surface,tool,before,after,tier,command,exit,duration_ms,pin,started_at`, plus `id`), refusals included.
 - `upkeep-axi --help` - top-level help. `-v`/`-V`/`--version` print the bare version.
 
@@ -52,29 +53,42 @@ The tool never runs as root and never publishes itself to npm; its built-in `upd
 
 ## Surfaces
 
-Fifteen status surfaces have shipped so far (the remaining version-one surfaces from the spec follow in later tasks); the tool runs on this WSL2 Ubuntu host only:
+All sixteen version-one surfaces have shipped; the tool runs on this WSL2 Ubuntu host only:
 
-| id            | scope                                  | installed via                                            | available via                                                                             |
-| ------------- | -------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `npm`         | global npm packages                    | `npm ls -g --json`                                       | `npm view <pkg> version`                                                                  |
-| `mise`        | mise itself and managed tools          | `mise ls --json`                                         | `mise outdated --json`                                                                    |
-| `uv`          | uv-managed tools                       | `uv tool list`                                           | `uv tool list --outdated`                                                                 |
-| `cargo`       | cargo-installed binaries               | `cargo install --list`                                   | `cargo search <crate> --limit 1`                                                          |
-| `bun`         | global bun packages                    | `bun pm ls -g`                                           | `bun pm view <pkg> version`                                                               |
-| `gh`          | gh itself and its extensions           | `gh --version`, `gh extension list`                      | `gh extension upgrade --all --dry-run`                                                    |
-| `skills`      | skills under `~/.agents/skills`        | `skills list -g` (or `npx -y skills`)                    | none exposed - installed only                                                             |
-| `fnm`         | fnm-managed node                       | `fnm list`                                               | `fnm ls-remote --lts`                                                                     |
-| `apt`         | upgradable packages, report-only       | `apt list --upgradable`                                  | the listing itself; apply is the exact `sudo apt-get update && sudo apt-get upgrade` text |
-| `claude`      | Claude Code, its plugins, marketplaces | `claude --version`, Claude state files                   | its own announcement                                                                      |
-| `codex`       | Codex CLI                              | `codex --version`                                        | `npm view @openai/codex version`                                                          |
-| `opencode`    | OpenCode                               | `opencode --version`                                     | its own announcement                                                                      |
-| `pi`          | Pi and its packages                    | `pi --version`, `pi list`                                | its own announcement                                                                      |
-| `herdr`       | Herdr and its plugins                  | `herdr --version`, `$XDG_CONFIG_HOME/herdr/plugins.json` | -                                                                                         |
-| `no-mistakes` | no-mistakes                            | `no-mistakes --version`                                  | its own announcement                                                                      |
+| id            | scope                                   | installed via                                            | available via                                                                             |
+| ------------- | --------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `npm`         | global npm packages                     | `npm ls -g --json`                                       | `npm view <pkg> version`                                                                  |
+| `mise`        | mise itself and managed tools           | `mise ls --json`                                         | `mise outdated --json`                                                                    |
+| `uv`          | uv-managed tools                        | `uv tool list`                                           | `uv tool list --outdated`                                                                 |
+| `cargo`       | cargo-installed binaries                | `cargo install --list`                                   | `cargo search <crate> --limit 1`                                                          |
+| `bun`         | global bun packages                     | `bun pm ls -g`                                           | `bun pm view <pkg> version`                                                               |
+| `gh`          | gh itself and its extensions            | `gh --version`, `gh extension list`                      | `gh extension upgrade --all --dry-run`                                                    |
+| `skills`      | skills under `~/.agents/skills`         | `skills list -g` (or `npx -y skills`)                    | none exposed - installed only                                                             |
+| `fnm`         | fnm-managed node                        | `fnm list`                                               | `fnm ls-remote --lts`                                                                     |
+| `apt`         | upgradable packages, report-only        | `apt list --upgradable`                                  | the listing itself; apply is the exact `sudo apt-get update && sudo apt-get upgrade` text |
+| `claude`      | Claude Code, its plugins, marketplaces  | `claude --version`, Claude state files                   | its own announcement                                                                      |
+| `codex`       | Codex CLI                               | `codex --version`                                        | `npm view @openai/codex version`                                                          |
+| `opencode`    | OpenCode                                | `opencode --version`                                     | its own announcement                                                                      |
+| `pi`          | Pi and its packages                     | `pi --version`, `pi list`                                | its own announcement                                                                      |
+| `herdr`       | Herdr and its plugins                   | `herdr --version`, `$XDG_CONFIG_HOME/herdr/plugins.json` | -                                                                                         |
+| `no-mistakes` | no-mistakes                             | `no-mistakes --version`                                  | its own announcement                                                                      |
+| `firstmate`   | the Firstmate fork's sync with upstream | the local clone's remote-tracking refs                   | upstream main, classified by a trial rebase                                               |
 
 The apt surface also reports the reboot-required flag as a row (`reboot-required`, present or not); its path is the `rebootRequiredPath` surface option, default `/var/run/reboot-required`.
 
 Surfaces whose latest version lives only in the tool's own update announcement (claude, opencode, pi, no-mistakes) keep `latest` and `tier` absent unless a config entry wires the announcement probe; the announcement then carries the tool's own claim. Claude plugin versions are the ones Claude Code recorded in `plugins/installed_plugins.json`; enabled-but-not-installed plugins report `installed=false` (an unreadable install record yields no plugin rows); marketplaces report `claude plugin marketplace update <name>`. Herdr plugin rows are inventory only: herdr exposes no plugin update or pin command, so none is printed.
+
+### The Firstmate fork sync
+
+The `firstmate` surface reads the local clone (config `clonePath`, default `/home/andre/tools/firstmate`): it fetches both remotes (`upstreamRemote`, default `upstream`; `forkRemote`, default `origin`) and counts the commits each is ahead of the other on the default branch (`defaultBranch`, default `main`). When both sides have commits the other lacks, a trial rebase of the fork's bespoke commits onto upstream main runs in a scratch worktree under the tool's own state directory (`$XDG_STATE_HOME/upkeep-axi/firstmate-sync/`), discarded afterwards; the clone's working tree and branches are never touched. The class carries the tier: `major` for a rebase (and its stopped case), `minor` for a pure fast-forward, `none` when current.
+
+`apply firstmate` never touches the clone or fork `main`:
+
+- fast-forward - pushes upstream main to a `sync/upstream-<sha>` branch on the fork and opens a plain pull request through `gh` whose body states it is a pure upstream fast-forward (no review beyond fork CI, per the standing ruling).
+- clean-rebase - replays the bespoke commits onto upstream main in a scratch worktree, pushes the rebased `sync/rebase-<sha>` branch through the no-mistakes gate initialised in the clone (`git push no-mistakes <branch>`), and reports the gate's own words; the branch name is the run's identity.
+- conflicts - refuses at plan time and names the conflicting files; nothing runs, so nothing is journaled.
+
+The pin command is the fork main commit before the sync, spelled as the force push that would restore it - a history rewrite that remains the captain's explicit act, never this tool's. A non-GitHub fork remote is a fact, not an error: the class stands and only the plain-gh pull request is unavailable.
 
 A manager that is missing reports one `installed=false` row. Adding a surface is one module in `src/surfaces/` plus one registry entry; the module contract is `detect`, `status`, `apply` (the fixed delegate argv; pin text lives on each row).
 
@@ -115,9 +129,10 @@ A missing default file means: every registry surface enabled, no per-tool entrie
 - `command` - executable probed on `PATH`; defaults to `name`.
 - `version_args` - argv used to ask a copy of `command` its version; defaults to `["--version"]`.
 - `announce_pattern` / `announce_args` - run the tool with `announce_args`, match `announce_pattern`, and report the match as the tool's own claim.
-- `git` - accepted for watched-tools schema compatibility; consumed by a later surface.
+- `git` - accepted for watched-tools schema compatibility only; the firstmate surface describes its one subject with surface-level options, not per-tool entries.
 - `rebootRequiredPath` - apt surface only: path of the reboot-required flag; defaults to `/var/run/reboot-required`.
 - `applyTimeoutMs` - per-surface budget for each apply delegate, a positive integer of milliseconds; defaults to `900000`.
+- `clonePath` / `upstreamRemote` / `forkRemote` / `defaultBranch` - firstmate surface only: the local clone of the fork (default `/home/andre/tools/firstmate`), the upstream remote name (default `upstream`), the fork remote name (default `origin`), and the default branch (default `main`).
 
 A configured entry the manager does not know reports `installed=false`. A malformed config is a usage error, never silently ignored.
 
@@ -131,7 +146,7 @@ npm run lint
 npm run format:check
 ```
 
-Tests exercise the CLI with fake vendor executables on a PATH that contains nothing else, so no test ever runs a real package manager or mutates the host. The real probes are exercised by the opt-in live smoke (`UPKEEP_AXI_LIVE_SMOKE=1 npm test` runs one `status` against the host's real managers).
+Tests exercise the CLI with fake vendor executables on a PATH that contains nothing else, so no test ever runs a real package manager or mutates the host. The firstmate fixtures are real git repositories in temporary directories with local-path remotes (no network); the fake `git` on the test PATH forwards to the real binary. The real probes are exercised by the opt-in live smoke (`UPKEEP_AXI_LIVE_SMOKE=1 npm test` runs one `status` against the host's real managers).
 
 ## Principles
 
