@@ -24,7 +24,15 @@ skew[1]{surface,tool,command,resolvedPath,resolvedVersion,newerPath,newerVersion
   npm,esbuild,esbuild,~/.local/bin/esbuild,0.19.0,~/.npm-global/bin/esbuild,0.20.0
 announce[1]{surface,tool,claim}:
   npm,no-mistakes,"A new version of no-mistakes is available: 0.1.0 -> 0.1.1"
-help[2]:
+summary:
+  tools: 3
+  gaps: 2
+  major: 1
+  minor: 1
+  in_use: 1
+  skew: 1
+help[3]:
+  Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier
   Run `upkeep-axi status --surface <id>` to scope to one surface
   Run `upkeep-axi status --json` for the normalized model
 ```
@@ -32,6 +40,7 @@ help[2]:
 Default output is [TOON](https://toonformat.dev/), structured for agents: one `tools[]` row per tool, plus sparse blocks that only appear when they have something to say:
 
 - `tools[]` - one row per tool: `installed`, installed `version`, available `latest`, semver `tier` (`none`/`patch`/`minor`/`major`; a gap whose versions do not both parse is `major`), `in_use` (present only on installed rows that carry an apply command), and the exact `apply` and `pin` commands. An installed version newer than `latest` is `none`: a current tool never reads as behind.
+- `summary` - pre-computed counts the next step usually needs: total `tools`, known `gaps`, the tier counts that are nonzero, and the `in_use` and `skew` counts when they are nonzero. Only known gaps count; an unknown latest is never a gap, and a zero fact stays absent.
 - `in_use[]` - why a tool is in use, read from `herdr agent list`, `no-mistakes runs`, and the process table (`/proc/<pid>/exe`), never from Firstmate's files. `apply` refuses an in-use tool with this reason.
 - `skew[]` - "update not in effect": every copy of the command on `PATH` was asked its version, and a newer copy sits behind the resolved one.
 - `announce[]` - the tool's own update announcement, matched by the configured pattern; upkeep-axi reports the claim verbatim and adds nothing.
@@ -40,13 +49,13 @@ Default output is [TOON](https://toonformat.dev/), structured for agents: one `t
 
 Absent data stays absent: an unknown latest version means no `latest` and no `tier`, never a guess.
 
-`--json` emits the same model with the same spellings. Exit codes: `0` success, `1` error, `2` usage error.
+`--json` emits the same model with the same spellings. `--fields <a,b,c>` projects every `tools[]` row to the named fields, in that order (`surface, tool, installed, version, latest, tier, in_use, apply, pin`), shared by TOON and JSON; an unknown field is a usage error. Stray positionals are refused: `upkeep-axi status npm` is a usage error that suggests `status --surface npm`. The `help[]` block follows the invocation: a scoped run never suggests scoping again, and the apply hint appears only when known gaps exist. Exit codes: `0` success, `1` error (including an executed apply where any row was refused or unconfirmed), `2` usage error.
 
 ## Verbs
 
-- `upkeep-axi status` - read-only inventory (the default command). Flags: `--surface <id[,id...]>`, `--since <cursor>`, `--changed-only`, `--config <path>`, `--json`, `--help`. `--since <cursor>` (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; `--changed-only` reports rows whose installed version differs from the journal's newest record of them (an empty journal reports everything). Given both, `--since` decides.
-- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported verbatim and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. A refused or unconfirmed delegate's own output is reported verbatim. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
-- `upkeep-axi journal` - print the append-only JSONL journal at `$XDG_STATE_HOME/upkeep-axi/journal.jsonl` (default `~/.local/state`): one record per tool per executed apply (`surface,tool,before,after,tier,command,exit,duration_ms,pin,started_at`, plus `id`), refusals included.
+- `upkeep-axi status` - read-only inventory (the default command). Flags: `--surface <id[,id...]>`, `--since <cursor>`, `--changed-only`, `--fields <a,b,c>`, `--config <path>`, `--json`, `--help`. `--since <cursor>` (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; `--changed-only` reports rows whose installed version differs from the journal's newest record of them (an empty journal reports everything). Given both, `--since` decides.
+- `upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>]` - plan updates from the same rows `status` produces; execute only with `--execute`. `--all` requires `--tier` and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Each delegate is the vendor's own updater with fixed arguments under a time budget (default 900000 ms): a refusal (nonzero exit) is reported and never retried; a delegate still running at its budget is left running and reported `unconfirmed`. An empty plan states the fact (`Nothing to apply: ...`) and exits 0. A refused or unconfirmed delegate's own output is reported, capped at 800 characters with a truncation marker naming the total; `--full` lifts the cap. An `--execute` run where any `results[]` row is refused or unconfirmed exits 1 with every row's outcome still on stdout. In-use tools are refused. apt is report-only and naming it for apply is a usage error.
+- `upkeep-axi journal` - print the append-only JSONL journal at `$XDG_STATE_HOME/upkeep-axi/journal.jsonl` (default `~/.local/state`): one record per tool per executed apply (`surface,tool,before,after,tier,command,exit,duration_ms,pin,started_at`, plus `id`), refusals included. `--fields <a,b,c>` projects every record, as with `status`.
 - `upkeep-axi --help` - top-level help. `-v`/`-V`/`--version` print the bare version.
 
 The tool never runs as root and never publishes itself to npm; its built-in `update` refuses for that reason.

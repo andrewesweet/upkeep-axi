@@ -145,6 +145,13 @@ describe("apply planning (no --execute)", () => {
     expect(model.skipped).toEqual([
       { surface: "skills", tool: "skills", reason: "no updates" },
     ]);
+    // The empty plan states itself in the TOON help instead of a bare
+    // plan[0]: with a generic hint.
+    const toon = await runCli(["apply", "skills"], fake.env());
+    expect(toon.code).toBe(0);
+    expect(toon.stdout).toContain(
+      "Nothing to apply: every selected row was skipped; see the skipped block",
+    );
   });
 
   it("a named tool status does not report is a refusal", async () => {
@@ -261,10 +268,12 @@ exit 1`,
       ["apply", "mise", "--execute", "--json"],
       fake.env(),
     );
-    expect(result.code).toBe(0);
+    // A refused delegate is not a success: exit 1, every outcome on stdout.
+    expect(result.code).toBe(1);
     const model = JSON.parse(result.stdout) as {
       results: Array<Record<string, unknown>>;
       output?: Array<{ surface: string; tool: string; detail: string }>;
+      summary?: Record<string, number>;
     };
     expect(model.results).toHaveLength(1);
     expect(model.results[0]).toMatchObject({
@@ -330,7 +339,8 @@ exit 1`,
       ["apply", "mise", "--execute", "--json"],
       fake.env(),
     );
-    expect(result.code).toBe(0);
+    // An over-budget delegate is unconfirmed, never a silent success.
+    expect(result.code).toBe(1);
     const model = JSON.parse(result.stdout) as {
       results: Array<Record<string, unknown>>;
     };
@@ -516,6 +526,133 @@ exit 1`,
   });
 });
 
+describe("AXI output discipline", () => {
+  /** A mise fake whose upgrade delegate refuses after 60 chatty lines. */
+  function chattyEnv(): FakeEnv {
+    const fake = stdEnv();
+    fake.writeFake(
+      "mise",
+      `if [ "$1" = "ls" ]; then
+  echo '{"node":[{"version":"20.11.0","installed":true}]}'
+  exit 0
+fi
+if [ "$1" = "outdated" ]; then
+  echo '{"node":{"name":"node","current":"20.11.0","latest":"22.0.0"}}'
+  exit 0
+fi
+if [ "$1" = "--version" ]; then
+  echo "2026.8.8 linux-x64 (2026-08-17)"
+  exit 0
+fi
+if [ "$1" = "upgrade" ]; then
+  i=0
+  while test "$i" -lt 60; do
+    echo "warning: mise upgrade line $i: the fixture is chatty about locks"
+    i=$((i+1))
+  done
+  exit 3
+fi
+exit 1`,
+    );
+    return fake;
+  }
+
+  it("caps output[] at a bounded preview naming the total, and suggests --full", async () => {
+    const fake = chattyEnv();
+    const result = await runCli(
+      ["apply", "mise", "node", "--execute", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(1);
+    const model = JSON.parse(result.stdout) as {
+      output?: Array<{ surface: string; tool: string; detail: string }>;
+    };
+    expect(model.output).toHaveLength(1);
+    const detail = model.output?.[0]?.detail as string;
+    // The preview keeps the head and names the total; nothing is omitted
+    // silently.
+    expect(detail.startsWith("warning: mise upgrade line 0:")).toBe(true);
+    const marker = detail.match(/… \(truncated, (\d+) chars total\)$/);
+    expect(marker).not.toBeNull();
+    const total = Number(marker?.[1]);
+    expect(total).toBeGreaterThan(800);
+    expect(detail.length).toBeLessThan(total);
+    // The default TOON report stays small too, help names the escape hatch.
+    const toon = await runCli(
+      ["apply", "mise", "node", "--execute"],
+      fake.env(),
+    );
+    expect(toon.code).toBe(1);
+    expect(toon.stdout.length).toBeLessThan(2500);
+    expect(toon.stdout).toContain("(truncated,");
+    expect(toon.stdout).toContain(
+      "Some delegate output was truncated: run the same apply with --full to print it verbatim",
+    );
+  });
+
+  it("--full lifts the cap: the delegate's words come through verbatim", async () => {
+    const fake = chattyEnv();
+    const result = await runCli(
+      ["apply", "mise", "node", "--execute", "--json", "--full"],
+      fake.env(),
+    );
+    expect(result.code).toBe(1);
+    const model = JSON.parse(result.stdout) as {
+      output?: Array<{ detail: string }>;
+    };
+    const detail = model.output?.[0]?.detail as string;
+    expect(detail).not.toContain("(truncated");
+    expect(
+      detail.endsWith(
+        "warning: mise upgrade line 59: the fixture is chatty about locks",
+      ),
+    ).toBe(true);
+    // The help never suggests the hatch when nothing was truncated.
+    const toon = await runCli(
+      ["apply", "mise", "node", "--execute", "--full"],
+      fake.env(),
+    );
+    expect(toon.stdout).not.toContain("--full");
+  });
+
+  it("an executed apply reports counts by outcome", async () => {
+    const fake = stdEnv();
+    const result = await runCli(
+      ["apply", "npm", "typescript", "--execute", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      summary?: Record<string, number>;
+    };
+    expect(model.summary).toEqual({ applied: 1 });
+  });
+
+  it("a plan-mode report carries no outcome counts", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["apply", "npm", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as { summary?: unknown };
+    expect(model.summary).toBeUndefined();
+  });
+});
+
+describe("empty apply plan states", () => {
+  it("--all --tier with no gaps at or below the tier states the fact and exits 0", async () => {
+    const fake = stdEnv();
+    // No fixture gap sits at patch tier.
+    const result = await runCli(
+      ["apply", "--all", "--tier", "patch"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("plan[0]:");
+    expect(result.stdout).toContain(
+      "Nothing to apply: no known gaps at or below patch",
+    );
+  });
+});
+
 describe("apply usage errors", () => {
   it("--all without --tier is refused", async () => {
     const fake = stdEnv();
@@ -563,7 +700,8 @@ exit 1`,
       ["apply", "--all", "--tier", "minor", "--execute", "--json"],
       fake.env(),
     );
-    expect(result.code).toBe(0);
+    // Two applied, five refused: exit 1 with every outcome on stdout.
+    expect(result.code).toBe(1);
     const model = JSON.parse(result.stdout) as {
       mode: string;
       results: Array<{
@@ -574,7 +712,10 @@ exit 1`,
         after?: string;
       }>;
       output?: Array<{ surface: string; tool: string; detail: string }>;
+      summary?: Record<string, number>;
     };
+    // Counts by outcome, computed so the caller need not scan the rows.
+    expect(model.summary).toEqual({ applied: 2, refused: 5 });
     // Seven planned rows, each exactly once: the npm and gh delegates exit 0
     // on their fakes; every other vendor updater refuses (exit 1) and is
     // never retried.
@@ -748,7 +889,7 @@ describe("status --since and --changed-only", () => {
       ["apply", "uv", "ruff", "--execute", "--json"],
       fake.env(),
     );
-    expect(refused.code).toBe(0);
+    expect(refused.code).toBe(1);
     expect(
       (JSON.parse(refused.stdout) as { results: Array<{ outcome: string }> })
         .results[0]?.outcome,
