@@ -33,8 +33,11 @@ export interface FakeEnv {
   writeFakeIn(dir: string, name: string, body: string): void;
   /** Write a plain file under the fake home (state the vendors keep there). */
   writeFakeFile(relPath: string, content: string): void;
-  /** Surface options every writeConfig call keeps unless it overrides them. */
-  surfaceDefaults: Record<string, unknown>;
+  /**
+   * Write the default config. The apt reboot-required flag is always pinned
+   * to an absent path under root unless the config overrides it, so the
+   * spawned CLI never reads the host's real /var/run/reboot-required.
+   */
   writeConfig(config: unknown): string;
   /** Base env for runCli; spread extras over it. */
   env(extra?: Record<string, string>): NodeJS.ProcessEnv;
@@ -53,13 +56,21 @@ export function createEnv(): FakeEnv {
     writeFileSync(path, `#!/bin/sh\n${body}\n`);
     chmodSync(path, 0o755);
   };
-  const surfaceDefaults: Record<string, unknown> = {};
+  const apt = { rebootRequiredPath: join(root, "no-reboot-required") };
+  const writeConfig = (config: unknown) => {
+    const base = config as { surfaces?: Record<string, unknown> };
+    writeFakeConfigAt(configPath, {
+      ...base,
+      surfaces: { apt, ...base.surfaces },
+    });
+    return configPath;
+  };
+  writeConfig({});
   return {
     root,
     binDir,
     xdgDir,
     configPath,
-    surfaceDefaults,
     writeFake: (name, body) => writeFakeIn(binDir, name, body),
     writeFakeIn,
     writeFakeFile: (relPath, content) => {
@@ -67,14 +78,7 @@ export function createEnv(): FakeEnv {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content);
     },
-    writeConfig: (config) => {
-      const base = config as { surfaces?: Record<string, unknown> };
-      writeFakeConfigAt(configPath, {
-        ...base,
-        surfaces: { ...surfaceDefaults, ...base.surfaces },
-      });
-      return configPath;
-    },
+    writeConfig,
     env: (extra = {}) => ({
       PATH: binDir,
       HOME: root,
@@ -122,15 +126,9 @@ export function runCli(
  * unknown latest), a not-installed mise entry, and uv's bin lines. Every
  * fake uses shell builtins only (echo/case/test) because the spawned CLI's
  * PATH contains nothing else - real vendor executables are unreachable by
- * construction. The apt surface's reboot-required flag is pinned to an
- * absent path so the suite stays deterministic on hosts that have one
- * pending; the set-reboot test points it at a real file.
+ * construction.
  */
 export function installStandardFakes(env: FakeEnv): void {
-  env.surfaceDefaults.apt = {
-    rebootRequiredPath: `${env.root}/no-reboot-required`,
-  };
-  env.writeConfig({});
   env.writeFake(
     "npm",
     `if [ "$1" = "ls" ]; then
