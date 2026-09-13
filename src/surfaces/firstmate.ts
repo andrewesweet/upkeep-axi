@@ -250,22 +250,25 @@ async function trialRebase(
     if (rebase.code === 0 && !rebase.timedOut) {
       return { sync: { class: "clean-rebase", forkAhead, upstreamAhead } };
     }
-    const files = await ctx.exec(
-      git,
-      ["-C", scratch, "diff", "--name-only", "--diff-filter=U"],
-      GIT_LOCAL_TIMEOUT_MS,
-    );
-    const conflicting = files.stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
+    const files = rebase.timedOut
+      ? undefined
+      : await ctx.exec(
+          git,
+          ["-C", scratch, "diff", "--name-only", "--diff-filter=U"],
+          GIT_LOCAL_TIMEOUT_MS,
+        );
+    const conflicting =
+      files?.code === 0
+        ? files.stdout
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [];
+    if (conflicting.length === 0) {
+      return { error: failDetail("git rebase (trial)", rebase) };
+    }
     return {
-      sync: {
-        class: "conflicts",
-        forkAhead,
-        upstreamAhead,
-        ...(conflicting.length > 0 ? { files: conflicting } : {}),
-      },
+      sync: { class: "conflicts", forkAhead, upstreamAhead, files: conflicting },
     };
   } finally {
     // Discarded afterwards, whatever the outcome; the remove is best-effort
@@ -468,7 +471,7 @@ export const firstmateSurface: Surface = {
             : undefined;
       if (delegate) row.applyCommand = applyCommandText(delegate);
       if (sync.class === "conflicts") {
-        row.refusal = `the trial rebase conflicts${sync.files ? `: ${sync.files.join(", ")}` : ""}`;
+        row.refusal = `the trial rebase conflicts: ${sync.files?.join(", ")}`;
       }
     }
     if (errors.length > 0) row.error = errors.join("; ");

@@ -85,7 +85,7 @@ The `firstmate` surface reads the local clone (config `clonePath`, default `/hom
 `apply firstmate` never touches the clone or fork `main`:
 
 - fast-forward - pushes upstream main to a `sync/upstream-<sha>` branch on the fork and opens a plain pull request through `gh` whose body states it is a pure upstream fast-forward (no review beyond fork CI, per the standing ruling).
-- clean-rebase - replays the bespoke commits onto upstream main in a scratch worktree, pushes the rebased `sync/rebase-<sha>` branch through the no-mistakes gate initialised in the clone (`git push no-mistakes <branch>`), and reports the gate's own words; the branch name is the run's identity.
+- clean-rebase - replays the bespoke commits onto upstream main in a scratch worktree, pushes the rebased `sync/rebase-<sha>` branch through the no-mistakes gate initialised in the clone (`git push no-mistakes <branch>`); the branch name is the run's identity, and the gate's words are reported only when the push is refused.
 - conflicts - refuses at plan time and names the conflicting files; nothing runs, so nothing is journaled.
 
 The pin command is the fork main commit before the sync, spelled as the force push that would restore it - a history rewrite that remains the captain's explicit act, never this tool's. A non-GitHub fork remote is a fact, not an error: the class stands and only the plain-gh pull request is unavailable.

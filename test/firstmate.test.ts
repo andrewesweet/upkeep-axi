@@ -336,6 +336,35 @@ describe("firstmate surface: status classes", () => {
     ).toHaveLength(1);
   });
 
+  it("reports a trial rebase that fails without conflicts as a probe error, not conflicts", async () => {
+    const fixture = buildFixture("clean-rebase");
+    const env = firstmateEnv(fixture);
+    env.writeFake(
+      "git",
+      `if [ "$3" = "remote" ] && [ "$4" = "get-url" ]; then
+  echo "https://github.com/andrewesweet/firstmate.git"
+  exit 0
+fi
+if [ "$3" = "rebase" ]; then
+  echo "fatal: Committer identity unknown" >&2
+  exit 128
+fi
+exec ${REAL_GIT} "$@"`,
+    );
+    const model = await statusJson(env);
+    const row = model.tools.find((tool) => tool.tool === "firstmate");
+    expect(row).toMatchObject({
+      version: fixture.forkSha,
+      latest: fixture.upstreamSha,
+    });
+    expect(row?.tier).toBeUndefined();
+    expect(row?.apply).toBeUndefined();
+    expect(model.sync).toBeUndefined();
+    expect(model.errors?.[0].detail).toContain(
+      "git rebase (trial) failed (exit 128): fatal: Committer identity unknown",
+    );
+  });
+
   it("classifies a conflicting trial rebase as conflicts and lists the files", async () => {
     const fixture = buildFixture("conflicts");
     const model = await statusJson(firstmateEnv(fixture));
