@@ -85,15 +85,11 @@ export interface ApplyReport {
 
 /**
  * What the CLI parsed out of `apply`'s argv: either `--all --tier <t>` or a
- * named surface with optional named tools and an optional tier (major when
- * the captain names only surfaces and passes no tier).
+ * named surface with optional named tools.
  */
-export interface ApplySelection {
-  all: boolean;
-  tier?: ApplyTier;
-  surface?: string;
-  tools?: string[];
-}
+export type ApplySelection =
+  | { all: true; tier: ApplyTier }
+  | { all: false; surface: string; tools: string[] };
 
 /** The per-surface apply budget: config option, else the generous default. */
 export function applyTimeoutFor(
@@ -128,29 +124,27 @@ function ctxFor(
  *
  * Selection: `--all --tier T` takes every row with a known gap at or below
  * T across all surfaces (apt never plans - report-only). Naming a surface
- * takes its rows with a known gap at or below the tier (default major).
- * Naming tools takes exactly those rows whatever their tier: the captain
- * pointed at them. Rows that are not installed, have no delegate, or are
- * measured in use are refused with the reason instead of planned.
+ * takes its rows with any known gap. Naming tools takes exactly those rows
+ * whatever their tier: the captain pointed at them. Rows that are not
+ * installed, have no delegate, or are measured in use are refused with the
+ * reason instead of planned.
  */
 export async function buildPlan(
   config: UpkeepConfig,
   selection: ApplySelection,
   env: NodeJS.ProcessEnv,
 ): Promise<{ plan: PlanRow[]; skipped: SkippedRow[] }> {
-  const maxRank = selection.all
-    ? TIER_RANK[selection.tier as ApplyTier]
-    : selection.tools?.length
-      ? Infinity // named tools bypass the tier filter
-      : TIER_RANK[selection.tier ?? "major"];
+  const maxRank = selection.all ? TIER_RANK[selection.tier] : Infinity;
   const surfaces = resolveSurfaces(
-    selection.all ? undefined : [selection.surface as string],
+    selection.all ? undefined : [selection.surface],
   );
   const rows = await collectStatus(config, surfaces, env);
   const surfaceById = new Map(surfaces.map((surface) => [surface.id, surface]));
-  const namedTools = selection.tools
-    ? new Map(selection.tools.map((tool) => [tool, false]))
-    : undefined;
+  const namedSurface = selection.all ? undefined : selection.surface;
+  const namedTools =
+    !selection.all && selection.tools.length > 0
+      ? new Map(selection.tools.map((tool) => [tool, false]))
+      : undefined;
 
   const plan: PlanRow[] = [];
   const skipped: SkippedRow[] = [];
@@ -159,11 +153,11 @@ export async function buildPlan(
 
   for (const row of rows) {
     knownRow.add(`${row.surface}\u0000${row.tool}`);
-    if (namedTools?.has(row.tool) && row.surface === selection.surface) {
+    if (namedTools?.has(row.tool) && row.surface === namedSurface) {
       namedTools.set(row.tool, true);
     }
     const explicit =
-      namedTools?.has(row.tool) === true && row.surface === selection.surface;
+      namedTools?.has(row.tool) === true && row.surface === namedSurface;
     if (!row.installed) {
       if (explicit) {
         skipped.push({
@@ -201,7 +195,7 @@ export async function buildPlan(
     // named tools were already selected by the captain pointing at them,
     // and they are the only rows a tool-named selection plans.
     if (!explicit) {
-      if (selection.tools?.length) continue;
+      if (namedTools) continue;
       if (!row.tier || row.tier === "none") continue;
       if (TIER_RANK[row.tier as ApplyTier] > maxRank) continue;
     }
@@ -224,9 +218,9 @@ export async function buildPlan(
   // A named tool status never reported is a refusal, not a silence.
   if (namedTools) {
     for (const [tool, seen] of namedTools) {
-      if (!seen && !knownRow.has(`${selection.surface}\u0000${tool}`)) {
+      if (!seen && !knownRow.has(`${namedSurface}\u0000${tool}`)) {
         skipped.push({
-          surface: selection.surface as string,
+          surface: namedSurface as string,
           tool,
           reason: "status does not report this tool",
         });
@@ -234,19 +228,19 @@ export async function buildPlan(
     }
   }
   // A named surface that contributed nothing says so in the skipped block.
-  if (!selection.all && plan.length === 0 && skipped.length === 0) {
-    const surface = surfaceById.get(selection.surface as string);
+  if (namedSurface !== undefined && plan.length === 0 && skipped.length === 0) {
+    const surface = surfaceById.get(namedSurface);
     const managerRow = rows.find(
       (row) =>
-        row.surface === selection.surface && row.tool === surface?.managerTool,
+        row.surface === namedSurface && row.tool === surface?.managerTool,
     );
     skipped.push({
-      surface: selection.surface as string,
-      tool: surface?.managerTool ?? (selection.surface as string),
+      surface: namedSurface,
+      tool: surface?.managerTool ?? namedSurface,
       reason:
         managerRow && !managerRow.installed
           ? "the surface's manager is not installed"
-          : "no updates at or below the selected tier",
+          : "no updates",
     });
   }
   return { plan, skipped };
@@ -254,9 +248,12 @@ export async function buildPlan(
 
 /**
  * Execute a plan: one delegate at a time, in plan order, each under its own
- * budget, every outcome journaled. Afterwards the affected surfaces are
+ * budget. The plan is grouped by surface (registry order keeps a surface's
+ * rows contiguous): after a surface's delegates ran, that surface is
  * re-probed so an applied row records the version now installed - an update
- * that did not take effect never reads as applied.
+ * that did not take effect never reads as applied - and its records are
+ * journaled at once, before the next surface starts. An interrupted run
+ * loses at most the surface it was in.
  */
 export async function executePlan(
   config: UpkeepConfig,
@@ -265,67 +262,59 @@ export async function executePlan(
 ): Promise<{ results: ApplyResultRow[]; output: DelegateOutputRow[] }> {
   const results: ApplyResultRow[] = [];
   const output: DelegateOutputRow[] = [];
-  for (const row of plan) {
-    const startedAt = new Date().toISOString();
-    const outcome = await runDelegate(row.delegate.steps, env, row.timeoutMs);
-    results.push({
-      surface: row.surface,
-      tool: row.tool,
-      command: row.command,
-      outcome: outcome.outcome,
-      exit: outcome.code,
-      duration_ms: outcome.durationMs,
-      before: row.before,
-      pin: row.pin,
-    });
-    if (outcome.outcome !== "applied" && outcome.output.trim()) {
-      output.push({
+  const journalPath = defaultJournalPath(env);
+  for (const surfaceId of new Set(plan.map((row) => row.surface))) {
+    const rows = plan.filter((row) => row.surface === surfaceId);
+    const surfaceResults: ApplyResultRow[] = [];
+    for (const row of rows) {
+      row.startedAt = new Date().toISOString();
+      const outcome = await runDelegate(row.delegate.steps, env, row.timeoutMs);
+      surfaceResults.push({
         surface: row.surface,
         tool: row.tool,
-        detail: outcome.output.trim(),
+        command: row.command,
+        outcome: outcome.outcome,
+        exit: outcome.code,
+        duration_ms: outcome.durationMs,
+        before: row.before,
+        pin: row.pin,
       });
-    }
-    row.startedAt = startedAt;
-  }
-
-  // Re-probe the affected surfaces for the after versions.
-  const affected = [...new Set(plan.map((row) => row.surface))];
-  const after = new Map<string, string | undefined>();
-  if (affected.length > 0) {
-    const fresh = await collectStatus(config, resolveSurfaces(affected), env);
-    for (const row of fresh) {
-      if (row.version !== undefined) {
-        after.set(`${row.surface}\u0000${row.tool}`, row.version);
+      if (outcome.outcome !== "applied" && outcome.output.trim()) {
+        output.push({
+          surface: row.surface,
+          tool: row.tool,
+          detail: outcome.output.trim(),
+        });
       }
     }
-  }
-  // An applied row reports the version now installed - the fact the report
-  // and the journal agree on. A refused or unconfirmed row keeps after
-  // absent: an update that did not take effect never reads as applied.
-  for (const result of results) {
-    if (result.outcome === "applied") {
-      result.after = after.get(`${result.surface}\u0000${result.tool}`);
+    // A refused or unconfirmed row keeps after absent.
+    if (surfaceResults.some((result) => result.outcome === "applied")) {
+      const fresh = await collectStatus(
+        config,
+        resolveSurfaces([surfaceId]),
+        env,
+      );
+      for (const result of surfaceResults) {
+        if (result.outcome !== "applied") continue;
+        result.after = fresh.find(
+          (row) => row.surface === result.surface && row.tool === result.tool,
+        )?.version;
+      }
     }
-  }
-  const journalPath = defaultJournalPath(env);
-  const records: NewJournalRecord[] = plan.map((row, index) => {
-    const result = results[index];
-    return {
+    const records: NewJournalRecord[] = rows.map((row, index) => ({
       surface: row.surface,
       tool: row.tool,
       before: row.before,
-      after:
-        result.outcome === "applied"
-          ? after.get(`${row.surface}\u0000${row.tool}`)
-          : undefined,
+      after: surfaceResults[index].after,
       tier: row.tier,
       command: row.command,
-      exit: result.exit,
-      duration_ms: result.duration_ms,
+      exit: surfaceResults[index].exit,
+      duration_ms: surfaceResults[index].duration_ms,
       pin: row.pin,
       started_at: row.startedAt as string,
-    };
-  });
-  appendJournal(journalPath, records);
+    }));
+    appendJournal(journalPath, records);
+    results.push(...surfaceResults);
+  }
   return { results, output };
 }

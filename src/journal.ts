@@ -81,15 +81,20 @@ export function appendJournal(
 ): JournalRecord[] {
   if (records.length === 0) return [];
   mkdirSync(dirname(path), { recursive: true });
-  const existing = readJournal(path);
-  let nextId = (existing.at(-1)?.id ?? 0) + 1;
+  // Ids are line numbers, so a damaged (unparseable or unterminated) last
+  // line still counts: the new records start on a fresh line after it.
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  const unterminated = existing.length > 0 && !existing.endsWith("\n");
+  let nextId = existing.split("\n").length - (unterminated ? 0 : 1) + 1;
   const written: JournalRecord[] = records.map((record) => ({
     ...record,
     id: nextId++,
   }));
   appendFileSync(
     path,
-    written.map((record) => JSON.stringify(record)).join("\n") + "\n",
+    (unterminated ? "\n" : "") +
+      written.map((record) => JSON.stringify(record)).join("\n") +
+      "\n",
   );
   return written;
 }

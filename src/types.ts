@@ -132,6 +132,11 @@ export interface ToolStatus {
   inUse?: boolean;
   /** Why the row is in use; reported verbatim in the sparse in_use block. */
   inUseDetail?: string;
+  /**
+   * The executables this row's package installs (npm `bin` names), for
+   * in-use measurement when the package name is not the executable name.
+   */
+  executables?: string[];
 }
 
 /**
@@ -142,8 +147,9 @@ export interface ToolStatus {
  * of its own status rows - the vendor's own updater, never assembled at
  * runtime anywhere else; undefined where the surface cannot apply the tool
  * (report-only, pinned, no vendor updater). `replacedExecutables` names the
- * executables whose files an apply would replace; an empty list declares
- * replacement safe even while the tool runs (npm globals). Rollback is not a
+ * executables whose files an apply of the row would replace; the default is
+ * the tool name itself, and an empty list means the row installs no
+ * executable. Rollback is not a
  * module concern: every row carries its pin command text, and the journal
  * records it.
  *
@@ -158,5 +164,5 @@ export interface Surface {
   detect(ctx: SurfaceContext): Promise<boolean>;
   status(ctx: SurfaceContext): Promise<ToolStatus[]>;
   apply(ctx: SurfaceContext, row: ToolStatus): ApplyDelegate | undefined;
-  replacedExecutables?(tool: string): string[];
+  replacedExecutables?(row: ToolStatus): string[];
 }

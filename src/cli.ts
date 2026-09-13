@@ -16,6 +16,7 @@ import {
   readJournal,
   recordKey,
   recordsSince,
+  type JournalRecord,
 } from "./journal.js";
 import {
   SCHEMA_VERSION,
@@ -56,7 +57,7 @@ export const STATUS_HELP = `usage: upkeep-axi status [flags]
 Report update inventory for every enabled surface: installed and available versions, semver tier, in-use, PATH skew, the tool's own update announcements, and the exact apply and pin commands.
 flags[4]:
   --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path>, --json
-  --since takes a journal record id or an ISO timestamp; --changed-only means since the newest record
+  --since takes a journal record id or an ISO timestamp; --changed-only reports rows whose installed version differs from the journal's last record of them
   config: --config <path> or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
 examples[5]:
   upkeep-axi status
@@ -67,14 +68,13 @@ examples[5]:
 `;
 
 export const APPLY_HELP = `usage: upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>] [flags]
-Plan updates from the same rows status produces; execute only with --execute. --all requires --tier and takes every gap at or below the tier; naming a surface defaults the tier to major; naming tools selects them whatever their tier. apt is report-only and never applied.
+Plan updates from the same rows status produces; execute only with --execute. --all requires --tier and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. apt is report-only and never applied.
 Every apply delegates to the vendor's own updater with fixed arguments under a per-surface time budget (config applyTimeoutMs, default 900000). A refused delegate is reported verbatim and never retried; one that outruns its budget is left running and reported unconfirmed. A surface whose tool is measured in use (herdr agents, no-mistakes runs, the process table) is refused with the reason.
 flags[5]:
   --all, --tier <patch|minor|major>, --execute, --config <path>, --json
-examples[6]:
+examples[5]:
   upkeep-axi apply npm
   upkeep-axi apply npm typescript --execute
-  upkeep-axi apply npm --tier patch --execute
   upkeep-axi apply --all --tier minor
   upkeep-axi apply --all --tier minor --execute
   upkeep-axi apply npm --json
@@ -239,24 +239,20 @@ async function statusCommand(
   const env = process.env;
   const config = loadValidatedConfig(parsed.configPath);
   const surfaces = resolveSurfaces(surfaceFilter);
-  let cursor: ReturnType<typeof parseCursor> | undefined;
-  if (since !== undefined) {
-    cursor = parseCursor(since, env);
-  } else if (changedOnly) {
-    const records = readJournal(defaultJournalPath(env));
-    // An empty journal is no baseline: the first daily check reports
-    // everything, and only later checks narrow to what changed.
-    if (records.length > 0) {
-      cursor = { kind: "id", id: records.at(-1)?.id ?? 0 };
-    }
-  }
+  const cursor = since !== undefined ? parseCursor(since, env) : undefined;
+  const records =
+    cursor || changedOnly ? readJournal(defaultJournalPath(env)) : [];
   const tools = await collectStatus(config, surfaces, env);
-  const filtered = cursor
-    ? filterToolsByJournal(
-        tools,
-        recordsSince(readJournal(defaultJournalPath(env)), cursor),
-      )
-    : tools;
+  let filtered = tools;
+  if (cursor) {
+    filtered = filterToolsByJournal(tools, recordsSince(records, cursor));
+  } else if (changedOnly && records.length > 0) {
+    // An empty journal is no baseline: the first check reports everything,
+    // and later checks narrow to rows that drifted from the journal's last
+    // word on them.
+    filtered = filterToolsByDrift(tools, records);
+  }
+  const narrowed = cursor !== undefined || changedOnly;
   const report = {
     generatedAt: new Date().toISOString(),
     schemaVersion: SCHEMA_VERSION,
@@ -268,7 +264,7 @@ async function statusCommand(
         report,
         context?.binPath ?? process.argv[1] ?? "upkeep-axi",
         DESCRIPTION,
-        cursor
+        narrowed
           ? {
               emptyHelp: [
                 "Nothing changed since the cursor",
@@ -279,7 +275,7 @@ async function statusCommand(
       );
 }
 
-/** The surfaces whose latest or installed changed: those the journal names. */
+/** The rows an apply touched after the cursor: those the journal names. */
 function filterToolsByJournal<T extends { surface: string; tool: string }>(
   tools: T[],
   records: Array<{ surface: string; tool: string }>,
@@ -287,6 +283,25 @@ function filterToolsByJournal<T extends { surface: string; tool: string }>(
   if (records.length === 0) return [];
   const changed = new Set(records.map(recordKey));
   return tools.filter((tool) => changed.has(recordKey(tool)));
+}
+
+/**
+ * The rows whose installed version differs from the journal's last record
+ * of them (`after`, else `before`): an apply that took effect late, or a
+ * change made outside upkeep-axi. Rows the journal never named have no
+ * baseline and are not reported.
+ */
+function filterToolsByDrift<
+  T extends { surface: string; tool: string; version?: string },
+>(tools: T[], records: JournalRecord[]): T[] {
+  const last = new Map<string, JournalRecord>();
+  for (const record of records) last.set(recordKey(record), record);
+  return tools.filter((tool) => {
+    const record = last.get(recordKey(tool));
+    return (
+      record !== undefined && (record.after ?? record.before) !== tool.version
+    );
+  });
 }
 
 function parseApplySelection(
@@ -335,19 +350,16 @@ function parseApplySelection(
       ["Run `upkeep-axi apply --help` for usage"],
     );
   }
-  if (tier !== undefined && positionals.length > 1) {
+  if (tier !== undefined) {
     throw new AxiError(
-      "`--tier` does not narrow explicitly named tools",
+      "`--tier` is only valid with `--all`",
       "VALIDATION_ERROR",
-      ["Name tools alone, or filter the surface with --tier"],
+      [
+        "Name a surface or tools alone, or use --all --tier <patch|minor|major>",
+      ],
     );
   }
-  return {
-    all: false,
-    tier,
-    surface: positionals[0],
-    tools: positionals.slice(1),
-  };
+  return { all: false, surface: positionals[0], tools: positionals.slice(1) };
 }
 
 async function applyCommand(

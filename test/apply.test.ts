@@ -116,12 +116,19 @@ describe("apply planning (no --execute)", () => {
     expect(model.plan.map((row) => row.tool)).toEqual(["unparsable"]);
   });
 
-  it("--tier narrows a named surface and an empty plan says why", async () => {
+  it("--tier without --all is a usage error", async () => {
     const fake = stdEnv();
     const result = await runCli(
       ["apply", "npm", "--tier", "patch", "--json"],
       fake.env(),
     );
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain("`--tier` is only valid with `--all`");
+  });
+
+  it("an empty plan for a named surface says why", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["apply", "skills", "--json"], fake.env());
     expect(result.code).toBe(0);
     const model = JSON.parse(result.stdout) as {
       plan: unknown[];
@@ -129,11 +136,7 @@ describe("apply planning (no --execute)", () => {
     };
     expect(model.plan).toEqual([]);
     expect(model.skipped).toEqual([
-      {
-        surface: "npm",
-        tool: "npm",
-        reason: "no updates at or below the selected tier",
-      },
+      { surface: "skills", tool: "skills", reason: "no updates" },
     ]);
   });
 
@@ -379,6 +382,40 @@ exit 1`,
     });
     expect(existsSync(journalPath(fake))).toBe(false);
   });
+
+  it("refuses an npm package whose bin is an active herdr agent", async () => {
+    const fake = stdEnv();
+    fake.writeFake(
+      "herdr",
+      `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+if [ "$1" = "agent" ] && [ "$2" = "list" ]; then
+  echo '{"result":{"agents":[{"agent":"tsc","agent_status":"working"}]}}'
+  exit 0
+fi
+exit 1`,
+    );
+    const result = await runCli(
+      ["apply", "npm", "typescript", "--execute", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: unknown[];
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    expect(model.plan).toEqual([]);
+    expect(model.skipped).toEqual([
+      {
+        surface: "npm",
+        tool: "typescript",
+        reason: "in use: herdr agent tsc is active",
+      },
+    ]);
+    expect(existsSync(journalPath(fake))).toBe(false);
+  });
 });
 
 describe("in-use sources", () => {
@@ -495,6 +532,20 @@ describe("apply usage errors", () => {
 describe("--all --tier minor --execute end to end", () => {
   it("applies what applies, reports refusals verbatim, journals every row", async () => {
     const fake = stdEnv();
+    // The last delegate to run reports whether earlier surfaces were already
+    // journaled when it started: an interrupted run loses at most one surface.
+    fake.writeFake(
+      "codex",
+      `if [ "$1" = "--version" ]; then
+  echo "codex-cli 0.154.0"
+  exit 0
+fi
+if [ "$1" = "update" ]; then
+  if test -f "$XDG_STATE_HOME/upkeep-axi/journal.jsonl"; then echo "journal already written"; fi
+  exit 1
+fi
+exit 1`,
+    );
     const result = await runCli(
       ["apply", "--all", "--tier", "minor", "--execute", "--json"],
       fake.env(),
@@ -532,6 +583,9 @@ describe("--all --tier minor --execute end to end", () => {
     // Every refusal is reported verbatim once.
     const ruff = model.output?.find((row) => row.surface === "uv");
     expect(ruff).toBeUndefined(); // the fake refuses silently: no output at all
+    expect(model.output?.find((row) => row.surface === "codex")?.detail).toBe(
+      "journal already written",
+    );
     const records = readJournalRecords(fake);
     expect(records).toHaveLength(7);
     expect(records.map((record) => record.id)).toEqual([1, 2, 3, 4, 5, 6, 7]);
@@ -619,8 +673,8 @@ describe("status --since and --changed-only", () => {
       ).tools.map((row) => [row.surface, row.tool]),
     ).toEqual([["npm", "typescript"]]);
 
-    // Right after the apply, --changed-only means since the newest record:
-    // nothing further has changed.
+    // Right after the apply the installed version is the journal's `after`:
+    // nothing drifted.
     const changed = await runCli(
       ["status", "--changed-only", "--json"],
       fake.env(),
@@ -629,6 +683,43 @@ describe("status --since and --changed-only", () => {
     expect((JSON.parse(changed.stdout) as { tools: unknown[] }).tools).toEqual(
       [],
     );
+
+    // A change made outside upkeep-axi drifts the row from the journal's
+    // last word on it, and only that row is reported.
+    fake.writeFakeFile(".npm-state/typescript", "5.8.0\n");
+    const drifted = await runCli(
+      ["status", "--changed-only", "--json"],
+      fake.env(),
+    );
+    expect(drifted.code).toBe(0);
+    expect(
+      (
+        JSON.parse(drifted.stdout) as {
+          tools: Array<{ surface: string; tool: string; version?: string }>;
+        }
+      ).tools.map((row) => [row.surface, row.tool, row.version]),
+    ).toEqual([["npm", "typescript", "5.8.0"]]);
+  });
+
+  it("appends after a damaged last line and keeps ids as line numbers", async () => {
+    const fake = stdEnv();
+    fake.writeFakeFile(
+      "xdg-state/upkeep-axi/journal.jsonl",
+      '{"surface":"npm","tool":"left',
+    );
+    const apply = await runCli(
+      ["apply", "npm", "typescript", "--execute", "--json"],
+      fake.env(),
+    );
+    expect(apply.code).toBe(0);
+    const lines = readFileSync(journalPath(fake), "utf-8").split("\n");
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[1])).toMatchObject({ id: 2, tool: "typescript" });
+    const journal = await runCli(["journal", "--json"], fake.env());
+    const model = JSON.parse(journal.stdout) as {
+      records: Array<{ id: number }>;
+    };
+    expect(model.records.map((record) => record.id)).toEqual([2]);
   });
 
   it("--changed-only on an empty journal reports everything", async () => {

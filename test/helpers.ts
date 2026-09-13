@@ -143,7 +143,7 @@ export function installStandardFakes(env: FakeEnv): void {
     `if [ "$1" = "ls" ]; then
   ts=5.6.3
   if test -f "$HOME/.npm-state/typescript"; then read ts < "$HOME/.npm-state/typescript"; fi
-  echo '{"dependencies":{"left-pad":{"version":"1.3.0"},"esbuild":{"version":"0.20.0"},"typescript":{"version":"'"$ts"'"},"unparsable":{"version":"dev"},"gone":{"version":"2.0.0"}}}'
+  echo '{"dependencies":{"left-pad":{"version":"1.3.0"},"esbuild":{"version":"0.20.0"},"typescript":{"version":"'"$ts"'","bin":{"tsc":"bin/tsc"}},"unparsable":{"version":"dev"},"gone":{"version":"2.0.0"}}}'
   exit 0
 fi
 if [ "$1" = "view" ]; then

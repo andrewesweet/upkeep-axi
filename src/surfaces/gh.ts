@@ -176,7 +176,7 @@ export const ghSurface: Surface = {
    * Extensions run as `gh <name>` and land on disk as `gh-<name>`; gh itself
    * is replaced only when the owning package manager updates it, not here.
    */
-  replacedExecutables(tool) {
+  replacedExecutables({ tool }) {
     return tool === SURFACE_ID ? [SURFACE_ID] : [tool, `gh-${tool}`];
   },
 };

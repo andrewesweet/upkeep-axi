@@ -202,26 +202,23 @@ function runDelegateStep(
       },
       Math.max(budgetMs, 1),
     );
-    child.on("error", (error) => {
+    // The capture directory is removed once the child is gone; on timeout
+    // it stays, because the detached child is still writing into it.
+    const finish = (wait: StepWait) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({
-        wait: { kind: "error", message: error.message },
-        stdout: readTemp(outPath),
-        stderr: readTemp(errPath),
-      });
-    });
-    child.on("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        wait: { kind: "close", code, signal },
-        stdout: readTemp(outPath),
-        stderr: readTemp(errPath),
-      });
-    });
+      const stdout = readTemp(outPath);
+      const stderr = readTemp(errPath);
+      rmSync(dir, { recursive: true, force: true });
+      resolve({ wait, stdout, stderr });
+    };
+    child.on("error", (error) =>
+      finish({ kind: "error", message: error.message }),
+    );
+    child.on("close", (code, signal) =>
+      finish({ kind: "close", code, signal }),
+    );
   });
 }
 
