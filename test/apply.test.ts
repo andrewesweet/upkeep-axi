@@ -742,14 +742,25 @@ describe("status --since and --changed-only", () => {
     expect(result.stdout).toContain("tools[39]{");
   });
 
-  it("refuses --since together with --changed-only", async () => {
+  it("a refused apply changes nothing and --since does not report it", async () => {
     const fake = stdEnv();
-    const result = await runCli(
-      ["status", "--since", "1", "--changed-only"],
+    const refused = await runCli(
+      ["apply", "uv", "ruff", "--execute", "--json"],
       fake.env(),
     );
-    expect(result.code).toBe(2);
-    expect(result.stdout).toContain("not both");
+    expect(refused.code).toBe(0);
+    expect(
+      (JSON.parse(refused.stdout) as { results: Array<{ outcome: string }> })
+        .results[0]?.outcome,
+    ).toBe("refused");
+    const since = await runCli(
+      ["status", "--since", "0", "--json"],
+      fake.env(),
+    );
+    expect(since.code).toBe(0);
+    expect((JSON.parse(since.stdout) as { tools: unknown[] }).tools).toEqual(
+      [],
+    );
   });
 
   it("rejects an unparseable cursor", async () => {

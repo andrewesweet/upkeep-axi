@@ -57,7 +57,7 @@ export const STATUS_HELP = `usage: upkeep-axi status [flags]
 Report update inventory for every enabled surface: installed and available versions, semver tier, in-use, PATH skew, the tool's own update announcements, and the exact apply and pin commands.
 flags[4]:
   --surface <id[,id...]>, --since <cursor>, --changed-only, --config <path>, --json
-  --since takes a journal record id or an ISO timestamp; --changed-only reports rows whose installed version differs from the journal's last record of them
+  --since <cursor> (a journal record id or an ISO timestamp) reports rows whose installed version differs from what the journal recorded at the cursor; --changed-only reports rows whose installed version differs from the journal's newest record of them
   config: --config <path> or $XDG_CONFIG_HOME/upkeep-axi/config.json (default ~/.config/upkeep-axi/config.json)
 examples[5]:
   upkeep-axi status
@@ -229,30 +229,25 @@ async function statusCommand(
   }
   const since = parsed.values.get("--since");
   const changedOnly = parsed.flags.has("--changed-only");
-  if (since !== undefined && changedOnly) {
-    throw new AxiError(
-      "Pass either `--since <cursor>` or `--changed-only`, not both",
-      "VALIDATION_ERROR",
-      ["Run `upkeep-axi status --help` for usage"],
-    );
-  }
   const env = process.env;
   const config = loadValidatedConfig(parsed.configPath);
   const surfaces = resolveSurfaces(surfaceFilter);
   const cursor = since !== undefined ? parseCursor(since, env) : undefined;
-  const records =
-    cursor || changedOnly ? readJournal(defaultJournalPath(env)) : [];
+  const narrowed = cursor !== undefined || changedOnly;
+  const records = narrowed ? readJournal(defaultJournalPath(env)) : [];
   const tools = await collectStatus(config, surfaces, env);
   let filtered = tools;
   if (cursor) {
-    filtered = filterToolsByJournal(tools, recordsSince(records, cursor));
+    filtered = filterToolsByDrift(
+      tools,
+      versionsAtCursor(recordsSince(records, cursor)),
+    );
   } else if (changedOnly && records.length > 0) {
     // An empty journal is no baseline: the first check reports everything,
     // and later checks narrow to rows that drifted from the journal's last
     // word on them.
-    filtered = filterToolsByDrift(tools, records);
+    filtered = filterToolsByDrift(tools, versionsAfterNewest(records));
   }
-  const narrowed = cursor !== undefined || changedOnly;
   const report = {
     generatedAt: new Date().toISOString(),
     schemaVersion: SCHEMA_VERSION,
@@ -275,33 +270,46 @@ async function statusCommand(
       );
 }
 
-/** The rows an apply touched after the cursor: those the journal names. */
-function filterToolsByJournal<T extends { surface: string; tool: string }>(
-  tools: T[],
-  records: Array<{ surface: string; tool: string }>,
-): T[] {
-  if (records.length === 0) return [];
-  const changed = new Set(records.map(recordKey));
-  return tools.filter((tool) => changed.has(recordKey(tool)));
+/**
+ * The version each tool had at the cursor: the `before` of its first record
+ * after the cursor. Tools with no record after the cursor have no known
+ * state at the cursor and are absent.
+ */
+function versionsAtCursor(
+  after: JournalRecord[],
+): Map<string, string | undefined> {
+  const at = new Map<string, string | undefined>();
+  for (const record of after) {
+    if (!at.has(recordKey(record))) at.set(recordKey(record), record.before);
+  }
+  return at;
+}
+
+/** The version each tool had after its newest record: `after`, else `before`. */
+function versionsAfterNewest(
+  records: JournalRecord[],
+): Map<string, string | undefined> {
+  const at = new Map<string, string | undefined>();
+  for (const record of records) {
+    at.set(recordKey(record), record.after ?? record.before);
+  }
+  return at;
 }
 
 /**
- * The rows whose installed version differs from the journal's last record
- * of them (`after`, else `before`): an apply that took effect late, or a
- * change made outside upkeep-axi. Rows the journal never named have no
- * baseline and are not reported.
+ * The rows whose installed version differs from the baseline the journal
+ * gives them: an apply that took effect, one that took effect late, or a
+ * change made outside upkeep-axi. A refused apply changes nothing and is
+ * not reported; rows without a baseline are not reported.
  */
 function filterToolsByDrift<
   T extends { surface: string; tool: string; version?: string },
->(tools: T[], records: JournalRecord[]): T[] {
-  const last = new Map<string, JournalRecord>();
-  for (const record of records) last.set(recordKey(record), record);
-  return tools.filter((tool) => {
-    const record = last.get(recordKey(tool));
-    return (
-      record !== undefined && (record.after ?? record.before) !== tool.version
-    );
-  });
+>(tools: T[], baseline: Map<string, string | undefined>): T[] {
+  return tools.filter(
+    (tool) =>
+      baseline.has(recordKey(tool)) &&
+      baseline.get(recordKey(tool)) !== tool.version,
+  );
 }
 
 function parseApplySelection(

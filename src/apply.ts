@@ -250,8 +250,8 @@ export async function buildPlan(
  * Execute a plan: one delegate at a time, in plan order, each under its own
  * budget. The plan is grouped by surface (registry order keeps a surface's
  * rows contiguous): after a surface's delegates ran, that surface is
- * re-probed so an applied row records the version now installed - an update
- * that did not take effect never reads as applied - and its records are
+ * re-probed so an applied row records the version now installed - `after`
+ * equal to `before` makes a no-effect update visible - and its records are
  * journaled at once, before the next surface starts. An interrupted run
  * loses at most the surface it was in.
  */
