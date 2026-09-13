@@ -217,10 +217,6 @@ exit 1`,
     }),
   );
   env.writeFakeFile(
-    ".claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0/.claude-plugin/plugin.json",
-    JSON.stringify({ name: "gopls-lsp", version: "1.2.0" }),
-  );
-  env.writeFakeFile(
     ".claude/plugins/known_marketplaces.json",
     JSON.stringify({
       "claude-plugins-official": {

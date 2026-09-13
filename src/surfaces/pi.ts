@@ -1,11 +1,7 @@
 import { extractVersion } from "../semver.js";
 import { pathCandidates } from "../exec.js";
 import type { Surface, SurfaceContext, ToolStatus } from "../types.js";
-import {
-  deferredMutation,
-  enrichWithConfig,
-  managerErrorRow,
-} from "./shared.js";
+import { deferredMutation, enrichWithConfig } from "./shared.js";
 
 const SURFACE_ID = "pi";
 const LIST_TIMEOUT_MS = 15_000;
@@ -55,25 +51,18 @@ export const piSurface: Surface = {
       extractVersion(probe.stdout) ?? extractVersion(probe.stderr);
     const list = await ctx.exec(pi, ["list"], LIST_TIMEOUT_MS);
     const sources = parsePiList(list.stdout);
+    const piRow: ToolStatus = {
+      surface: SURFACE_ID,
+      tool: SURFACE_ID,
+      installed: true,
+      version,
+      applyCommand: "pi update self",
+    };
     if (list.code !== 0 && sources.length === 0) {
-      return enrichWithConfig(ctx, SURFACE_ID, [
-        managerErrorRow(
-          SURFACE_ID,
-          "pi",
-          version,
-          `pi list failed (exit ${list.code}${list.timedOut ? ", timed out" : ""})`,
-        ),
-      ]);
+      piRow.error = `pi list failed (exit ${list.code}${list.timedOut ? ", timed out" : ""})`;
+      return enrichWithConfig(ctx, SURFACE_ID, [piRow]);
     }
-    const rows: ToolStatus[] = [
-      {
-        surface: SURFACE_ID,
-        tool: SURFACE_ID,
-        installed: true,
-        version,
-        applyCommand: "pi update self",
-      },
-    ];
+    const rows: ToolStatus[] = [piRow];
     for (const source of sources) {
       rows.push({
         surface: SURFACE_ID,

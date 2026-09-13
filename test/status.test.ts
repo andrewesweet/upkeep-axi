@@ -79,7 +79,7 @@ describe("status (TOON default)", () => {
       "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
     );
     expect(out).toContain(
-      "  claude,gopls-lsp@claude-plugins-official,true,1.2.0,null,null,claude plugin update gopls-lsp@claude-plugins-official,null",
+      "  claude,gopls-lsp@claude-plugins-official,true,1.0.0,null,null,claude plugin update gopls-lsp@claude-plugins-official,null",
     );
     expect(out).toContain(
       "  claude,context7@claude-plugins-official,true,3deb821cb71c,null,null,claude plugin update context7@claude-plugins-official,null",
@@ -93,9 +93,10 @@ describe("status (TOON default)", () => {
     expect(out).toContain(
       "  claude,caveman,true,null,null,null,claude plugin marketplace update caveman,null",
     );
-    // Codex reads its latest from the npm registry Codex's docs name.
+    // Codex reads its latest from the npm registry Codex's docs name and
+    // updates itself; its installer exposes no pin.
     expect(out).toContain(
-      "  codex,codex,true,0.154.0,0.155.0,minor,npm install -g @openai/codex@latest,npm install -g @openai/codex@0.154.0",
+      "  codex,codex,true,0.154.0,0.155.0,minor,codex update,null",
     );
     expect(out).toContain(
       "  opencode,opencode,true,1.18.13,null,null,opencode upgrade,opencode upgrade 1.18.13",
@@ -396,6 +397,36 @@ describe("agent tooling surfaces", () => {
     expect(result.stdout).not.toContain("gopls-lsp");
   });
 
+  it("claims no plugin rows when the claude install record does not parse", async () => {
+    const fake = stdEnv();
+    fake.writeFakeFile(".claude/plugins/installed_plugins.json", "{not json");
+    const result = await runCli(["status", "--surface", "claude"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "claude,claude,claude installed_plugins.json is not valid JSON",
+    );
+    expect(result.stdout).toContain(
+      "tools[3]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).not.toContain("gopls-lsp");
+    expect(result.stdout).not.toContain("ghost-plugin");
+  });
+
+  it("keeps the claude row when a state file holds the JSON literal null", async () => {
+    const fake = stdEnv();
+    fake.writeFakeFile(".claude/settings.json", "null");
+    fake.writeFakeFile(".claude/plugins/installed_plugins.json", "null");
+    fake.writeFakeFile(".claude/plugins/known_marketplaces.json", "null");
+    const result = await runCli(["status", "--surface", "claude"], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "tools[1]{surface,tool,installed,version,latest,tier,apply,pin}:",
+    );
+    expect(result.stdout).toContain(
+      "  claude,claude,true,2.1.270,null,null,claude update,claude install 2.1.270",
+    );
+  });
+
   it("keeps codex latest and tier absent when the npm registry read fails", async () => {
     const fake = stdEnv();
     fake.writeFake(
@@ -409,7 +440,7 @@ exit 1`,
     const result = await runCli(["status", "--surface", "codex"], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "  codex,codex,true,0.154.0,null,null,npm install -g @openai/codex@latest,npm install -g @openai/codex@0.154.0",
+      "  codex,codex,true,0.154.0,null,null,codex update,null",
     );
   });
 
@@ -431,7 +462,9 @@ exit 1`,
     expect(failed.code).toBe(0);
     expect(failed.stdout).toContain("errors[1]{surface,tool,detail}:");
     expect(failed.stdout).toContain("pi,pi,pi list failed (exit 3)");
-    expect(failed.stdout).toContain("  pi,pi,true,0.85.1,null,null,null,null");
+    expect(failed.stdout).toContain(
+      "  pi,pi,true,0.85.1,null,null,pi update self,null",
+    );
 
     const empty = createEnv();
     empty.writeFake(
@@ -638,7 +671,7 @@ describe("status --json", () => {
       surface: "claude",
       tool: "gopls-lsp@claude-plugins-official",
       installed: true,
-      version: "1.2.0",
+      version: "1.0.0",
       apply: "claude plugin update gopls-lsp@claude-plugins-official",
     });
     const annotate = model.tools.find(

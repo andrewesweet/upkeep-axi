@@ -17,7 +17,6 @@ interface ClaudeSettings {
 
 interface InstalledEntry {
   scope?: unknown;
-  installPath?: unknown;
   version?: unknown;
 }
 
@@ -42,31 +41,13 @@ function claudeDir(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * The plugin's own manifest is the first version source; the version the
- * installer recorded in installed_plugins.json is the fallback. Neither is a
- * version, so the row reports installed only.
- */
-function pluginVersion(entry: InstalledEntry): string | undefined {
-  const installPath =
-    typeof entry.installPath === "string" ? entry.installPath : undefined;
-  if (installPath) {
-    const manifest = readJsonFile<{ version?: unknown }>(
-      join(installPath, ".claude-plugin", "plugin.json"),
-    );
-    if ("value" in manifest && typeof manifest.value.version === "string") {
-      return manifest.value.version;
-    }
-  }
-  return typeof entry.version === "string" ? entry.version : undefined;
-}
-
-/**
  * Claude Code, its plugins, and its marketplaces. The binary reports
  * `claude --version`; plugins and marketplaces are read from Claude's own
  * state files, never re-derived: enabled plugins from settings.json, install
- * facts from plugins/installed_plugins.json, marketplaces from
+ * facts and versions from plugins/installed_plugins.json, marketplaces from
  * plugins/known_marketplaces.json. A plugin enabled in settings but absent
- * from the install record reports installed=false. Updates announce
+ * from a readable install record reports installed=false; an unreadable
+ * install record yields no plugin rows at all. Updates announce
  * themselves, so latest and tier stay absent here; the configured
  * announcement probe carries the tool's own claim. A state file that exists
  * but does not parse is reported verbatim on the claude row, and every fact
@@ -94,7 +75,7 @@ export const claudeSurface: Surface = {
     }
     const enabledPlugins =
       "value" in settings &&
-      settings.value.enabledPlugins &&
+      settings.value?.enabledPlugins &&
       typeof settings.value.enabledPlugins === "object"
         ? settings.value.enabledPlugins
         : {};
@@ -107,7 +88,7 @@ export const claudeSurface: Surface = {
     }
     const installedMap =
       "value" in installed &&
-      installed.value.plugins &&
+      installed.value?.plugins &&
       typeof installed.value.plugins === "object"
         ? installed.value.plugins
         : {};
@@ -119,7 +100,9 @@ export const claudeSurface: Surface = {
       details.push("claude known_marketplaces.json is not valid JSON");
     }
     const marketplaceMap =
-      "value" in marketplaces && typeof marketplaces.value === "object"
+      "value" in marketplaces &&
+      marketplaces.value !== null &&
+      typeof marketplaces.value === "object"
         ? marketplaces.value
         : {};
 
@@ -134,7 +117,9 @@ export const claudeSurface: Surface = {
     if (details.length > 0) claudeRow.error = details.join("; ");
 
     const rows: ToolStatus[] = [claudeRow];
-    for (const [key, enabled] of Object.entries(enabledPlugins)) {
+    const pluginKeys =
+      "invalid" in installed ? [] : Object.entries(enabledPlugins);
+    for (const [key, enabled] of pluginKeys) {
       if (enabled !== true) continue;
       const entries = Array.isArray(installedMap[key])
         ? installedMap[key].filter(
@@ -154,7 +139,7 @@ export const claudeSurface: Surface = {
         surface: SURFACE_ID,
         tool: key,
         installed: true,
-        version: pluginVersion(entry),
+        version: typeof entry.version === "string" ? entry.version : undefined,
         applyCommand: `claude plugin update ${key}`,
       });
     }

@@ -15,7 +15,9 @@ function managerPath(ctx: SurfaceContext): string | undefined {
  * Codex CLI. The installed version comes from `codex --version`; the
  * available version comes from the npm registry check Codex's own docs give,
  * `npm view @openai/codex version`. A missing npm or a failed view keeps
- * latest and tier absent - the row keeps whatever facts survived.
+ * latest and tier absent - the row keeps whatever facts survived. Codex
+ * updates itself with `codex update`; its installer exposes no pin, so the
+ * pin stays absent.
  */
 export const codexSurface: Surface = {
   id: SURFACE_ID,
@@ -37,8 +39,7 @@ export const codexSurface: Surface = {
       tool: SURFACE_ID,
       installed: true,
       version,
-      applyCommand: `npm install -g ${PACKAGE}@latest`,
-      pinCommand: version ? `npm install -g ${PACKAGE}@${version}` : undefined,
+      applyCommand: "codex update",
     };
     const npm = pathCandidates("npm", ctx.env)[0];
     if (npm) {
