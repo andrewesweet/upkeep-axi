@@ -1,4 +1,5 @@
 import { AxiError } from "axi-sdk-js";
+import { existsSync, readFileSync } from "node:fs";
 import { compareVersions, extractVersion, parseVersion } from "../semver.js";
 import { mapLimit, pathCandidates } from "../exec.js";
 import type {
@@ -157,5 +158,21 @@ export function parseJsonOutput<T>(stdout: string): T | undefined {
     return JSON.parse(stdout) as T;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Read a settings-style JSON file. A missing file is normal (the manager has
+ * nothing recorded there); a file that exists but does not parse is distinct,
+ * so the caller can report it verbatim instead of losing it as absence.
+ */
+export function readJsonFile<T>(
+  path: string,
+): { value: T } | { missing: true } | { invalid: true } {
+  if (!existsSync(path)) return { missing: true };
+  try {
+    return { value: JSON.parse(readFileSync(path, "utf-8")) as T };
+  } catch {
+    return { invalid: true };
   }
 }

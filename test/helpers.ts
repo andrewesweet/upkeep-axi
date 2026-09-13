@@ -31,6 +31,8 @@ export interface FakeEnv {
   configPath: string;
   writeFake(name: string, body: string): void;
   writeFakeIn(dir: string, name: string, body: string): void;
+  /** Write a plain file under the fake home (state the vendors keep there). */
+  writeFakeFile(relPath: string, content: string): void;
   writeConfig(config: unknown): string;
   /** Base env for runCli; spread extras over it. */
   env(extra?: Record<string, string>): NodeJS.ProcessEnv;
@@ -56,6 +58,11 @@ export function createEnv(): FakeEnv {
     configPath,
     writeFake: (name, body) => writeFakeIn(binDir, name, body),
     writeFakeIn,
+    writeFakeFile: (relPath, content) => {
+      const path = join(root, relPath);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+    },
     writeConfig: (config) => {
       writeFakeConfigAt(configPath, config);
       return configPath;
@@ -123,6 +130,7 @@ if [ "$1" = "view" ]; then
     typescript) echo "5.7.2" ;;
     unparsable) echo "2026.09.0" ;;
     gone) echo "" ;;
+    @openai/codex) echo "0.155.0" ;;
   esac
   exit 0
 fi
@@ -160,6 +168,123 @@ if [ "$1" = "tool" ] && [ "$2" = "list" ] && [ "$3" = "--outdated" ]; then
 fi
 if [ "$1" = "--version" ]; then
   echo "uv 0.12.5"
+  exit 0
+fi
+exit 1`,
+  );
+  // Claude Code binary plus its own state files: two enabled plugins (one
+  // with a manifest version, one with only the installer-recorded version),
+  // one enabled but not installed, one disabled, two marketplaces.
+  env.writeFake(
+    "claude",
+    `if [ "$1" = "--version" ]; then
+  echo "2.1.270 (Claude Code)"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFakeFile(
+    ".claude/settings.json",
+    JSON.stringify({
+      enabledPlugins: {
+        "gopls-lsp@claude-plugins-official": true,
+        "context7@claude-plugins-official": true,
+        "ghost-plugin@ghost-market": true,
+        "caveman@caveman": false,
+      },
+    }),
+  );
+  env.writeFakeFile(
+    ".claude/plugins/installed_plugins.json",
+    JSON.stringify({
+      version: 2,
+      plugins: {
+        "gopls-lsp@claude-plugins-official": [
+          {
+            scope: "user",
+            installPath: `${env.root}/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0`,
+            version: "1.0.0",
+          },
+        ],
+        "context7@claude-plugins-official": [
+          {
+            scope: "user",
+            installPath: `${env.root}/.claude/plugins/cache/claude-plugins-official/context7/3deb821cb71c`,
+            version: "3deb821cb71c",
+          },
+        ],
+      },
+    }),
+  );
+  env.writeFakeFile(
+    ".claude/plugins/known_marketplaces.json",
+    JSON.stringify({
+      "claude-plugins-official": {
+        installLocation: `${env.root}/.claude/plugins/marketplaces/claude-plugins-official`,
+      },
+      caveman: {
+        installLocation: `${env.root}/.claude/plugins/marketplaces/caveman`,
+      },
+    }),
+  );
+  env.writeFake(
+    "codex",
+    `if [ "$1" = "--version" ]; then
+  echo "codex-cli 0.154.0"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "opencode",
+    `if [ "$1" = "--version" ]; then
+  echo "1.18.13"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "pi",
+    `if [ "$1" = "--version" ]; then
+  echo "0.85.1"
+  exit 0
+fi
+if [ "$1" = "list" ]; then
+  echo "User:"
+  echo "  github:owner/some-pi-ext"
+  echo "    ${env.root}/.pi/agent/packages/some-pi-ext"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFake(
+    "herdr",
+    `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+exit 1`,
+  );
+  env.writeFakeFile(
+    "xdg/herdr/plugins.json",
+    JSON.stringify([
+      {
+        plugin_id: "annotate",
+        name: "Annotate",
+        version: "0.4.0",
+        enabled: true,
+      },
+      { plugin_id: "collie", name: "Collie", version: "1.8.0", enabled: false },
+    ]),
+  );
+  env.writeFake(
+    "no-mistakes",
+    `if [ "$1" = "--version" ]; then
+  echo "no-mistakes version v1.72.0 (9fcc865) 2026-09-08T13:12:43Z"
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  echo "A new version of no-mistakes is available: 1.72.0 -> 1.73.0"
   exit 0
 fi
 exit 1`,
