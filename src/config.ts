@@ -105,6 +105,13 @@ function validateSurface(
       path,
     );
   }
+  if (entry.clonePath !== undefined && !isNonEmptyString(entry.clonePath)) {
+    throw configError(
+      `surfaces.${id}.clonePath`,
+      "must be a non-empty string",
+      path,
+    );
+  }
   if (entry.tools !== undefined) {
     if (!Array.isArray(entry.tools)) {
       throw configError(`surfaces.${id}.tools`, "must be an array", path);

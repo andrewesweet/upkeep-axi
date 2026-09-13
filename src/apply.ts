@@ -172,11 +172,17 @@ export async function buildPlan(
     if (!surface) continue;
     const delegate = surface.apply(ctxFor(config, surface, env), row);
     if (!delegate) {
-      if (explicit) {
+      // A row that knows why it cannot be applied reports that reason
+      // wherever the caller asked for it (a named surface, a named tool, or
+      // --all): a conflicting sync stops and names its files. Other
+      // delegate-less rows stay silent unless the caller named them.
+      if (explicit || row.refusal) {
         skipped.push({
           surface: row.surface,
           tool: row.tool,
-          reason: "the surface publishes no apply command for this tool",
+          reason:
+            row.refusal ??
+            "the surface publishes no apply command for this tool",
         });
       }
       continue;

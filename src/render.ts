@@ -4,7 +4,7 @@ import type { ApplyReport } from "./apply.js";
 import type { JournalRecord } from "./journal.js";
 import type { ToolStatus } from "./types.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Collapse the user's home directory to `~` for display. */
 function collapseHome(path: string, homeDir: string = homedir()): string {
@@ -72,6 +72,16 @@ interface InUseRow {
   detail: string;
 }
 
+interface SyncRow {
+  surface: string;
+  tool: string;
+  class: string;
+  fork_ahead: number;
+  upstream_ahead: number;
+  fork_repo?: string;
+  files?: string[];
+}
+
 interface StatusModel {
   generatedAt: string;
   schemaVersion: number;
@@ -80,6 +90,7 @@ interface StatusModel {
   skew?: SkewRow[];
   announce?: AnnounceRow[];
   in_use?: InUseRow[];
+  sync?: SyncRow[];
 }
 
 /**
@@ -127,6 +138,18 @@ export function statusModel(report: StatusReport): StatusModel {
       surface: row.surface,
       tool: row.tool,
       detail: row.inUseDetail as string,
+    }));
+  }
+  const sync = report.tools.filter((row) => row.sync);
+  if (sync.length > 0) {
+    model.sync = sync.map((row) => ({
+      surface: row.surface,
+      tool: row.tool,
+      class: row.sync?.class as string,
+      fork_ahead: row.sync?.forkAhead as number,
+      upstream_ahead: row.sync?.upstreamAhead as number,
+      fork_repo: row.sync?.forkRepo,
+      files: row.sync?.files,
     }));
   }
   return model;

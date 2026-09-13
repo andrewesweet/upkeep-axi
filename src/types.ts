@@ -21,8 +21,9 @@ export type SemverTier = "none" | "patch" | "minor" | "major";
  *   is reported as the tool's own update announcement.
  * - `announce_args`: argv used to obtain that output; required with
  *   `announce_pattern`.
- * - `git`: watched-tools schema compatibility; consumed by the Firstmate-fork
- *   surface in a later build.
+ * - `git`: watched-tools schema compatibility only. The Firstmate-fork
+ *   surface describes its one subject with the surface-level `clonePath`,
+ *   not per-tool entries.
  */
 
 export interface ToolConfig {
@@ -40,6 +41,8 @@ export interface SurfaceConfig {
   tools?: ToolConfig[];
   /** apt only: where the reboot-required flag lives (default /var/run/reboot-required). */
   rebootRequiredPath?: string;
+  /** firstmate only: the local clone of the fork (default /home/andre/tools/firstmate). */
+  clonePath?: string;
   /**
    * apply only: the budget for one delegate run in milliseconds. A delegate
    * still running at the budget is left running and reported unconfirmed.
@@ -102,6 +105,29 @@ export interface ApplyDelegate {
   steps: ApplyStep[];
 }
 
+/**
+ * Firstmate-fork sync facts, measured by a trial rebase of the fork's
+ * bespoke commits onto upstream main in a scratch worktree.
+ */
+export interface ForkSync {
+  /**
+   * - `current`: nothing to sync (the fork equals upstream, or the fork is
+   *   ahead and upstream has nothing new).
+   * - `fast-forward`: nothing bespoke; upstream main simply moved ahead.
+   * - `clean-rebase`: the bespoke commits replay onto upstream main cleanly.
+   * - `conflicts`: the trial rebase stopped; `files` lists the conflicts.
+   */
+  class: "fast-forward" | "clean-rebase" | "conflicts" | "current";
+  /** Fork commits ahead of upstream main (the bespoke commits). */
+  forkAhead: number;
+  /** Upstream main commits ahead of the fork. */
+  upstreamAhead: number;
+  /** The fork's GitHub owner/name, when the fork remote URL is one. */
+  forkRepo?: string;
+  /** Conflicting files, present only when class is conflicts. */
+  files?: string[];
+}
+
 /** One row per tool per surface. Absent facts stay absent. */
 export interface ToolStatus {
   surface: string;
@@ -137,6 +163,14 @@ export interface ToolStatus {
    * in-use measurement when the package name is not the executable name.
    */
   executables?: string[];
+  /**
+   * Why apply must skip this row, when the surface knows a reason no
+   * delegate exists (firstmate: the trial rebase conflicted, with the
+   * files). Not rendered on the row; the plan's skipped block reports it.
+   */
+  refusal?: string;
+  /** Firstmate fork sync facts, when this row is the fork sync row. */
+  sync?: ForkSync;
 }
 
 /**

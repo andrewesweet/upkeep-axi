@@ -739,7 +739,7 @@ describe("status --since and --changed-only", () => {
     const fake = stdEnv();
     const result = await runCli(["status", "--changed-only"], fake.env());
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("tools[39]{");
+    expect(result.stdout).toContain("tools[40]{");
   });
 
   it("a refused apply changes nothing and --since does not report it", async () => {

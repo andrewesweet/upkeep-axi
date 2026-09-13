@@ -6,6 +6,7 @@ import { cargoSurface } from "./cargo.js";
 import { claudeSurface } from "./claude.js";
 import { codexSurface } from "./codex.js";
 import { fnmSurface } from "./fnm.js";
+import { firstmateSurface } from "./firstmate.js";
 import { ghSurface } from "./gh.js";
 import { herdrSurface } from "./herdr.js";
 import { miseSurface } from "./mise.js";
@@ -37,6 +38,7 @@ export const SURFACE_REGISTRY: Surface[] = [
   piSurface,
   herdrSurface,
   noMistakesSurface,
+  firstmateSurface,
 ];
 
 /**
