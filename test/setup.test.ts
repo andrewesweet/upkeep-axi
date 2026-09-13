@@ -49,6 +49,7 @@ describe("setup hooks", () => {
     expect(entry.type).toBe("command");
     expect(entry.command.endsWith(AMBIENT_ENTRY)).toBe(true);
     expect(existsSync(entry.command)).toBe(true);
+    expect(entry.timeout).toBe(120);
 
     // Codex: the hook plus the user-level feature flag it needs.
     const codex = JSON.parse(

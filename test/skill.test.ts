@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESCRIPTION } from "../src/cli.js";
+import { SURFACE_REGISTRY } from "../src/surfaces/index.js";
 import {
   SKILL_NAME,
   createSkillMarkdown,
@@ -15,6 +16,12 @@ describe("the installable skill (AXI §7, secondary path)", () => {
     // outcome, and the intents that should load it.
     expect(markdown).toContain("upkeep-axi CLI");
     expect(markdown).toContain("Use when");
+    // The surface list comes from the registry, so a new surface shows up
+    // here without anyone re-spelling it.
+    const [frontmatter] = markdown.split("\n---\n");
+    for (const surface of SURFACE_REGISTRY) {
+      expect(frontmatter).toContain(surface.id);
+    }
   });
 
   it("derives its command list from the same TOP_HELP the CLI prints", () => {

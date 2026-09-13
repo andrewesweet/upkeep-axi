@@ -54,6 +54,13 @@ export const DESCRIPTION =
 const HOOK_MARKER = "upkeep-axi";
 /** The second entrypoint the hook command runs (no arguments possible). */
 const AMBIENT_BIN_NAME = "upkeep-axi-ambient";
+/**
+ * The hook's budget in seconds. The dashboard runs every surface's probes
+ * serially with network round-trips (npm/cargo/bun views, gh dry-run, mise
+ * and uv outdated, two firstmate fetches), so the SDK's 10 s default would
+ * kill it before it printed anything.
+ */
+const HOOK_TIMEOUT_SECONDS = 120;
 
 export const TOP_HELP = `usage: upkeep-axi [<command>] [flags]
 commands[5]:
@@ -580,7 +587,7 @@ interface HooksModel {
   generatedAt: string;
   schemaVersion: number;
   hooks: Array<{ agent: string; installed: boolean; path: string }>;
-  codexFeature?: { enabled: boolean; path: string };
+  codexFeature: { enabled: boolean; path: string };
   errors?: string[];
 }
 
@@ -625,14 +632,14 @@ function renderHooksToon(
     schemaVersion: model.schemaVersion,
     hooks: model.hooks,
   };
-  if (model.codexFeature) body.codex_hooks_feature = model.codexFeature.enabled;
+  body.codex_hooks_feature = model.codexFeature.enabled;
   if (model.errors) body.errors = model.errors;
   const help: string[] = [];
   if (!afterInstall) {
     help.push("Run `upkeep-axi setup hooks` to install or repair the hooks");
   }
   help.push("Restart your agent session to receive upkeep-axi ambient context");
-  if (model.codexFeature && !model.codexFeature.enabled) {
+  if (!model.codexFeature.enabled) {
     help.push(
       "Codex needs `[features] hooks = true` in its config.toml; run `upkeep-axi setup hooks` (without --status) to set it",
     );
@@ -688,6 +695,7 @@ async function setupCommand(
     marker: HOOK_MARKER,
     execPath: entrypoint,
     binaryNames: [AMBIENT_BIN_NAME],
+    timeoutSeconds: HOOK_TIMEOUT_SECONDS,
     onError: (message) => errors.push(message),
   });
   const status = sessionStartHookStatus({ marker: HOOK_MARKER });

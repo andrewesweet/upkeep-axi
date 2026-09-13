@@ -1,4 +1,5 @@
 import { DESCRIPTION, TOP_HELP } from "./cli.js";
+import { SURFACE_REGISTRY } from "./surfaces/index.js";
 
 /**
  * The installable skill (AXI §7's secondary path): a minimal static stub
@@ -16,8 +17,8 @@ export const SKILL_NAME = "upkeep-axi";
 
 export const SKILL_DESCRIPTION =
   "Report this workstation's update inventory via the upkeep-axi CLI - installed vs available " +
-  "versions per surface (npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, " +
-  "pi, herdr, no-mistakes, the Firstmate fork sync), the semver tier of each gap, whether the tool " +
+  `versions per surface (${SURFACE_REGISTRY.map((surface) => surface.id).join(", ")}), ` +
+  "the semver tier of each gap, whether the tool " +
   "is in use, PATH skew, and the exact apply and pin commands. Use when the user asks what is " +
   "outdated, before updating or pinning workstation tools, when checking whether an update took " +
   "effect, or before applying updates with upkeep-axi apply.";
