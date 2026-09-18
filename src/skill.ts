@@ -1,5 +1,5 @@
 import { DESCRIPTION, TOP_HELP } from "./cli.js";
-import { SURFACE_REGISTRY } from "./surfaces/index.js";
+import { reportOnlySurfaces, SURFACE_REGISTRY } from "./surfaces/index.js";
 
 /**
  * The installable skill (AXI §7's secondary path): a minimal static stub
@@ -56,6 +56,9 @@ export function createSkillMarkdown(): string {
       return `- \`${name}\` - ${rest.join("=")}`;
     })
     .join("\n");
+  const reportOnly = reportOnlySurfaces()
+    .map((surface) => surface.id)
+    .join(", ");
   return `---
 name: ${SKILL_NAME}
 description: >
@@ -69,7 +72,7 @@ ${DESCRIPTION} Read-only \`status\` reports installed vs available versions,
 the semver tier of each gap, in-use conflicts, PATH skew, and the exact
 commands that apply or pin each tool. \`apply\` plans by default and runs a
 vendor's own updater only with \`--execute\`; every run is journaled. The tool
-never runs as root, and \`apt\` is report-only.
+never runs as root, and report-only surfaces (${reportOnly}) are never applied.
 
 Commands (kept identical to the CLI's own top-level help):
 

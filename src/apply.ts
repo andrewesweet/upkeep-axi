@@ -123,7 +123,9 @@ function ctxFor(
  * Build the plan from the same rows `status` produces, in registry order.
  *
  * Selection: `--all --tier T` takes every row with a known gap at or below
- * T across all surfaces (apt never plans - report-only). Naming a surface
+ * T across all surfaces (a report-only surface never plans: its `apply`
+ * returns undefined, so its rows skip here like any delegate-less row).
+ * Naming a surface
  * takes its rows with any known gap. Naming tools takes exactly those rows
  * whatever their tier: the captain pointed at them. Rows that are not
  * installed, have no delegate, or are measured in use are refused with the

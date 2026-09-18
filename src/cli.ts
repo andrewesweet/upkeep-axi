@@ -44,7 +44,11 @@ import {
   JOURNAL_ROW_FIELDS,
   TOOL_ROW_FIELDS,
 } from "./render.js";
-import { resolveSurfaces } from "./surfaces/index.js";
+import {
+  reportOnlySurfaces,
+  resolveSurfaces,
+  SURFACE_REGISTRY,
+} from "./surfaces/index.js";
 import {
   defaultSnapshotPath,
   readSnapshot,
@@ -55,6 +59,14 @@ import { VERSION } from "./version.js";
 
 export const DESCRIPTION =
   "Report workstation update inventory across surfaces.";
+
+/**
+ * The registered report-only surfaces, named in help text so the sentence
+ * stays true when the next report-only surface lands.
+ */
+const REPORT_ONLY_IDS = reportOnlySurfaces()
+  .map((surface) => surface.id)
+  .join(", ");
 
 /** The hook installer's identity: every managed entry carries this marker. */
 const HOOK_MARKER = "upkeep-axi";
@@ -71,7 +83,7 @@ commands[5]:
 output:
   Default TOON reports, per surface, installed vs available versions, semver tier, in-use, PATH skew ("update not in effect"), the tool's own update announcements, and the exact apply and pin commands. --json emits the same model.
 notes[2]:
-  apply plans by default; --execute runs each vendor's own updater with fixed arguments, and apt is never applied.
+  apply plans by default; --execute runs each vendor's own updater with fixed arguments, and report-only surfaces (${REPORT_ONLY_IDS}) are never applied.
   \`update\` refuses: upkeep-axi is not published to npm.
 flags[3]:
   --surface <id[,id...]>, --config <path>, --json
@@ -100,7 +112,7 @@ examples[6]:
 `;
 
 export const APPLY_HELP = `usage: upkeep-axi apply [<surface> [tool...]] [--all --tier <patch|minor|major>] [flags]
-Plan updates from the same rows status produces; execute only with --execute. --all requires --tier and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. apt is report-only and never applied.
+Plan updates from the same rows status produces; execute only with --execute. --all requires --tier and takes every gap at or below the tier; naming a surface takes every gap it has; naming tools selects them whatever their tier. Report-only surfaces (${REPORT_ONLY_IDS}) are never applied; their status rows carry the exact commands to run yourself.
 Every apply delegates to the vendor's own updater with fixed arguments under a per-surface time budget (config applyTimeoutMs, default 900000). A refused delegate is reported verbatim and never retried; one that outruns its budget is left running and reported unconfirmed. A refused or unconfirmed execute exits 1 with every row's outcome on stdout. A surface whose tool is measured in use (herdr agents, no-mistakes runs, the process table) is refused with the reason.
 flags[6]:
   --all, --tier <patch|minor|major>, --execute, --full, --config <path>, --json
@@ -527,16 +539,22 @@ async function applyCommand(
     parsed.values,
     parsed.flags,
   );
-  // apt is report-only: naming it for apply is a usage error, whatever
-  // else was asked.
-  if (!selection.all && selection.surface === "apt") {
-    throw new AxiError(
-      "apt is report-only: upkeep-axi never runs apt, even with sudo",
-      "VALIDATION_ERROR",
-      [
-        "Run the `sudo apt-get update && sudo apt-get upgrade` command from status yourself",
-      ],
+  // A report-only surface is named for apply never, whatever else was
+  // asked: the refusal quotes the row's manual command from the surface's
+  // own metadata, never a surface name.
+  if (!selection.all) {
+    const surface = SURFACE_REGISTRY.find(
+      (candidate) => candidate.id === selection.surface,
     );
+    if (surface?.reportOnly) {
+      throw new AxiError(
+        `${surface.id} is report-only: upkeep-axi never runs ${surface.id}, even with sudo`,
+        "VALIDATION_ERROR",
+        [
+          `Run the \`${surface.reportOnly.manualCommand}\` command from status yourself`,
+        ],
+      );
+    }
   }
   const env = process.env;
   const config = loadValidatedConfig(parsed.configPath);

@@ -42,6 +42,22 @@ export const SURFACE_REGISTRY: Surface[] = [
 ];
 
 /**
+ * The registry surfaces that never delegate an apply (report-only), in
+ * declaration order. Help and usage text derive the surface names here, so
+ * a second report-only surface lands as one module plus one registry entry.
+ */
+export function reportOnlySurfaces(): Surface[] {
+  return SURFACE_REGISTRY.filter((surface) => surface.reportOnly !== undefined);
+}
+
+/** True when the named registry surface never delegates an apply. */
+export function isReportOnlySurface(id: string): boolean {
+  return SURFACE_REGISTRY.some(
+    (surface) => surface.id === id && surface.reportOnly !== undefined,
+  );
+}
+
+/**
  * Resolve the requested surfaces. A filter keeps registry order (never the
  * caller's spelling order) and an unknown id is a usage error that names the
  * known surfaces.

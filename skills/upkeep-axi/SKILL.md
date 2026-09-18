@@ -11,7 +11,7 @@ Report workstation update inventory across surfaces. Read-only `status` reports 
 the semver tier of each gap, in-use conflicts, PATH skew, and the exact
 commands that apply or pin each tool. `apply` plans by default and runs a
 vendor's own updater only with `--execute`; every run is journaled. The tool
-never runs as root, and `apt` is report-only.
+never runs as root, and report-only surfaces (apt) are never applied.
 
 Commands (kept identical to the CLI's own top-level help):
 
