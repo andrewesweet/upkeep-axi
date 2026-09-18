@@ -190,11 +190,19 @@ export function normalizeArgv(raw: string[]): string[] {
   return raw;
 }
 
-function requireFlagValue(args: string[], index: number, flag: string): string {
+function requireFlagValue(
+  args: string[],
+  index: number,
+  flag: string,
+  spelling: string,
+  command: string,
+): string {
   const value = args[index];
   if (value === undefined) {
+    // The hint names the fixing command with the flag's own placeholder,
+    // never a generic help pointer.
     throw new AxiError(`\`${flag}\` requires a value`, "VALIDATION_ERROR", [
-      `Run \`upkeep-axi --help\` for usage`,
+      `Run \`upkeep-axi ${command} ${spelling}\``,
     ]);
   }
   return value;
@@ -251,12 +259,16 @@ interface ParsedArgs {
   flags: Set<string>;
 }
 
-/** Parse the shared flag grammar; unknown flags are usage errors. */
+/**
+ * Parse the shared flag grammar; unknown flags are usage errors. Each
+ * valued flag carries its own placeholder spelling so a missing value
+ * hints the exact command that fixes it.
+ */
 function parseFlags(
   args: string[],
   command: string,
   validFlags: string,
-  valued: Set<string>,
+  valued: Map<string, string>,
   boolean: Set<string>,
 ): ParsedArgs {
   const parsed: ParsedArgs = {
@@ -272,13 +284,20 @@ function parseFlags(
       continue;
     }
     if (arg === "--config") {
-      const value = requireFlagValue(args, index + 1, arg);
+      const value = requireFlagValue(
+        args,
+        index + 1,
+        arg,
+        "--config <path>",
+        command,
+      );
       index++;
       parsed.configPath = value;
       continue;
     }
-    if (valued.has(arg)) {
-      const value = requireFlagValue(args, index + 1, arg);
+    const spelling = valued.get(arg);
+    if (spelling !== undefined) {
+      const value = requireFlagValue(args, index + 1, arg, spelling, command);
       index++;
       parsed.values.set(arg, value);
       continue;
@@ -323,7 +342,11 @@ async function statusCommand(
     args,
     "status",
     "--json, --surface <id[,id...]>, --since <cursor>, --changed-only, --fields <a,b,c>, --config <path>",
-    new Set(["--surface", "--since", "--fields"]),
+    new Map([
+      ["--surface", "--surface <id[,id...]>"],
+      ["--since", "--since <cursor>"],
+      ["--fields", "--fields <a,b,c>"],
+    ]),
     new Set(["--changed-only"]),
   );
   // Stray positionals fail loud: `status npm` almost certainly meant
@@ -413,7 +436,11 @@ async function statusCommand(
           ...(narrowed
             ? {
                 emptyHelp: [
-                  "Nothing changed since the cursor",
+                  // Given both, --since decides: the cursor wording is the
+                  // cursor's; --changed-only names its own baseline.
+                  cursor
+                    ? "Nothing changed since the cursor"
+                    : "Nothing changed since the journal's newest records",
                   "Run `upkeep-axi status` for the full inventory",
                 ],
               }
@@ -507,7 +534,10 @@ function parseApplySelection(
     throw new AxiError(
       "Name a surface (`upkeep-axi apply npm`) or pass `--all --tier <patch|minor|major>`",
       "VALIDATION_ERROR",
-      ["Run `upkeep-axi apply --help` for usage"],
+      [
+        "Run `upkeep-axi apply <surface>`",
+        "Run `upkeep-axi apply --all --tier <patch|minor|major>`",
+      ],
     );
   }
   if (tier !== undefined) {
@@ -531,7 +561,7 @@ async function applyCommand(
     args,
     "apply",
     "--all, --tier <patch|minor|major>, --execute, --full, --config <path>, --json",
-    new Set(["--tier"]),
+    new Map([["--tier", "--tier <patch|minor|major>"]]),
     new Set(["--all", "--execute", "--full"]),
   );
   const selection = parseApplySelection(
@@ -563,6 +593,7 @@ async function applyCommand(
   const full = parsed.flags.has("--full");
   const renderOptions = {
     full,
+    selection,
     ...(plan.length === 0
       ? {
           emptyPlanHelp: [
@@ -705,7 +736,7 @@ async function setupCommand(
     args.slice(1),
     "setup hooks",
     "--status, --json",
-    new Set(),
+    new Map(),
     new Set(["--status"]),
   );
   const binPath = context?.binPath ?? process.argv[1] ?? "upkeep-axi";
@@ -744,12 +775,12 @@ async function ambientCommand(
   context?: CliContext,
 ): Promise<string> {
   assertNotRoot();
-  const parsed = parseFlags(args, "ambient", "--json", new Set(), new Set());
+  const parsed = parseFlags(args, "ambient", "--json", new Map(), new Set());
   if (parsed.positionals.length > 0) {
     throw new AxiError(
       `Unknown argument \`${parsed.positionals[0]}\` for \`ambient\``,
       "VALIDATION_ERROR",
-      ["Run `upkeep-axi ambient --help` for usage"],
+      ["Run `upkeep-axi ambient`"],
     );
   }
   const env = process.env;
@@ -783,14 +814,14 @@ async function journalCommand(
     args,
     "journal",
     "--json, --fields <a,b,c>, --config <path>",
-    new Set(["--fields"]),
+    new Map([["--fields", "--fields <a,b,c>"]]),
     new Set(),
   );
   if (parsed.positionals.length > 0) {
     throw new AxiError(
       `Unknown argument \`${parsed.positionals[0]}\` for \`journal\``,
       "VALIDATION_ERROR",
-      ["Run `upkeep-axi journal --help` for usage"],
+      ["Run `upkeep-axi journal`"],
     );
   }
   const records = readJournal(defaultJournalPath(process.env));

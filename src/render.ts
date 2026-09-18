@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { encode } from "@toon-format/toon";
-import type { ApplyReport } from "./apply.js";
+import type { ApplyReport, ApplySelection } from "./apply.js";
 import type { JournalRecord } from "./journal.js";
 import { isReportOnlySurface } from "./surfaces/index.js";
 import type { ToolStatus } from "./types.js";
@@ -334,6 +334,8 @@ export interface StatusRenderOptions extends StatusModelOptions, ToonOptions {
  * Help derived from the invocation and the rows: the scoping hint only
  * when unscoped, the apply hint only when known gaps exist that apply can
  * plan. A report-only surface's gaps hint the row's own command instead.
+ * Every hint names the command that fixes the row, so there is no generic
+ * `--json` pointer: that flag is documented in `status --help`.
  */
 function statusHelpHints(
   rows: ToolStatus[],
@@ -366,7 +368,6 @@ function statusHelpHints(
       "Run `upkeep-axi status --surface <id>` to scope to one surface",
     );
   }
-  hints.push("Run `upkeep-axi status --json` for the normalized model");
   return hints;
 }
 
@@ -408,10 +409,29 @@ export function renderStatusJson(
   return JSON.stringify(statusModel(report, options), null, 2);
 }
 
-const PLAN_HELP = [
-  "Run `upkeep-axi apply ... --execute` to run this plan; nothing has run yet",
-  "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
-];
+/**
+ * The plan hint carries the invocation forward: the exact command that
+ * would run this plan, spelled from the parsed selection - never a
+ * literal "...". The generic --all hint appears only when the caller did
+ * not already invoke --all.
+ */
+function planHelpHints(selection: ApplySelection): string[] {
+  const command = selection.all
+    ? `upkeep-axi apply --all --tier ${selection.tier} --execute`
+    : [
+        "upkeep-axi apply",
+        selection.surface,
+        ...selection.tools,
+        "--execute",
+      ].join(" ");
+  const hints = [`Run \`${command}\` to run this plan; nothing has run yet`];
+  if (!selection.all) {
+    hints.push(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+    );
+  }
+  return hints;
+}
 
 const EXECUTED_HELP = [
   "Run `upkeep-axi journal` for the append-only record of what ran",
@@ -423,12 +443,20 @@ export interface ApplyRenderOptions {
   full?: boolean;
   /** Help lines used when the plan carried nothing to apply. */
   emptyPlanHelp?: string[];
+  /** The parsed selection: the plan hint spells its exact command. */
+  selection: ApplySelection;
+}
+
+/** Options of the JSON renderer: it carries no help block. */
+export interface ApplyJsonOptions {
+  /** Lift the `output[]` display cap: print delegate output verbatim. */
+  full?: boolean;
 }
 
 /** The apply report: the plan, what was refused, and with --execute what ran. */
 export function applyModel(
   report: ApplyReport,
-  options: ApplyRenderOptions = {},
+  options: ApplyJsonOptions = {},
 ): Record<string, unknown> {
   const model: Record<string, unknown> = {
     generatedAt: report.generatedAt,
@@ -484,7 +512,7 @@ export function renderApplyToon(
   report: ApplyReport,
   binPath: string,
   description: string,
-  options: ApplyRenderOptions = {},
+  options: ApplyRenderOptions,
 ): string {
   const body = {
     bin: collapseHome(binPath),
@@ -517,7 +545,7 @@ export function renderApplyToon(
     }
     help.push(...EXECUTED_HELP);
   } else {
-    help.push(...PLAN_HELP);
+    help.push(...planHelpHints(options.selection));
   }
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)
@@ -526,7 +554,7 @@ export function renderApplyToon(
 
 export function renderApplyJson(
   report: ApplyReport,
-  options: ApplyRenderOptions = {},
+  options: ApplyJsonOptions = {},
 ): string {
   return JSON.stringify(applyModel(report, options), null, 2);
 }

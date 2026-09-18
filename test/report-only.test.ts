@@ -152,7 +152,10 @@ describe("report-only surfaces (generic, not apt-named)", () => {
       expect(result.code).toBe(0);
       // Two surfaces requested, so the generic hint branch is the one at
       // stake - and every known gap belongs to the report-only surface.
-      expect(result.output).toContain("Run `upkeep-axi status --json`");
+      // With no non-report-only gap and no scoping hint due, the help block
+      // is empty: no generic pointer survives.
+      expect(result.output).toContain("help[0]:");
+      expect(result.output).not.toContain("Run `upkeep-axi status --json`");
       expect(result.output).not.toContain("Run `upkeep-axi apply");
     });
   });

@@ -31,10 +31,9 @@ summary:
   minor: 1
   in_use: 1
   skew: 1
-help[3]:
+help[2]:
   Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier
   Run `upkeep-axi status --surface <id>` to scope to one surface
-  Run `upkeep-axi status --json` for the normalized model
 ```
 
 Default output is [TOON](https://toonformat.dev/), structured for agents: one `tools[]` row per tool, plus sparse blocks that only appear when they have something to say:

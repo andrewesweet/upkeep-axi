@@ -197,17 +197,16 @@ describe("status (TOON default)", () => {
       "summary:\n  tools: 41\n  gaps: 10\n  major: 3\n  minor: 7",
     );
     // Contextual help, derived from the invocation: gaps present suggest
-    // apply, and the scoping hint stays.
-    expect(out).toContain("help[3]:");
+    // apply, and the scoping hint stays. There is no generic --json hint:
+    // that flag lives in `status --help`.
+    expect(out).toContain("help[2]:");
     expect(out).toContain(
       "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
     );
     expect(out).toContain(
       "Run `upkeep-axi status --surface <id>` to scope to one surface",
     );
-    expect(out).toContain(
-      "Run `upkeep-axi status --json` for the normalized model",
-    );
+    expect(out).not.toContain("--json` for the normalized model");
   });
 
   it("bare invocation behaves like status", async () => {
@@ -1233,7 +1232,7 @@ describe("AXI output discipline", () => {
     expect(result.stdout).toContain(
       "Run `upkeep-axi apply npm` to plan its gaps",
     );
-    expect(result.stdout).toContain("help[2]:");
+    expect(result.stdout).toContain("help[1]:");
   });
 
   it("never hints apply for apt: a scoped apt gap hints the row's own command", async () => {
@@ -1244,7 +1243,7 @@ describe("AXI output discipline", () => {
     expect(result.stdout).toContain(
       "Run `sudo apt-get update && sudo apt-get upgrade` yourself: apt is report-only",
     );
-    expect(result.stdout).toContain("help[2]:");
+    expect(result.stdout).toContain("help[1]:");
   });
 
   it("skips the apply hint when the only gaps are apt rows", async () => {
@@ -1256,7 +1255,8 @@ describe("AXI output discipline", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("  apt,ripgrep,");
     expect(result.stdout).not.toContain("Run `upkeep-axi apply");
-    expect(result.stdout).toContain("help[1]:");
+    // The generic --json pointer is gone too, so the help block is empty.
+    expect(result.stdout).toContain("help[0]:");
   });
 
   it("derives the help from the rows: no gaps drops the update hint", async () => {
@@ -1268,7 +1268,7 @@ describe("AXI output discipline", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).not.toContain("Run `upkeep-axi apply");
     expect(result.stdout).not.toContain("to scope to one surface");
-    expect(result.stdout).toContain("help[1]:");
+    expect(result.stdout).toContain("help[0]:");
   });
 
   it("summarizes counts by tier, in-use, and skew on every status run", async () => {
@@ -1416,11 +1416,15 @@ describe("usage errors", () => {
     );
   });
 
-  it("rejects a missing flag value", async () => {
+  it("rejects a missing flag value and hints the fixing command", async () => {
     const fake = stdEnv();
     const result = await runCli(["status", "--surface"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("error: `--surface` requires a value");
+    expect(result.stdout).toContain(
+      "Run `upkeep-axi status --surface <id[,id...]>`",
+    );
+    expect(result.stdout).not.toContain("Run `upkeep-axi --help`");
   });
 
   it("rejects an invalid config file instead of ignoring it", async () => {
@@ -1455,6 +1459,12 @@ describe("usage errors", () => {
     expect(result.stdout).toContain(
       "Name a surface (`upkeep-axi apply npm`) or pass `--all --tier <patch|minor|major>`",
     );
+    // The hints name the two fixing commands, not a help pointer.
+    expect(result.stdout).toContain("Run `upkeep-axi apply <surface>`");
+    expect(result.stdout).toContain(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>`",
+    );
+    expect(result.stdout).not.toContain("Run `upkeep-axi apply --help`");
   });
 
   it("the built-in update refuses: upkeep-axi is not published to npm", async () => {
