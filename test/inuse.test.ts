@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { InUseProber, markInUse } from "../src/inuse.js";
+import { snapSurface } from "../src/surfaces/snap.js";
 import type { ToolStatus } from "../src/types.js";
 import { createEnv, type FakeEnv } from "./helpers.js";
 
@@ -201,6 +202,50 @@ describe("in-use executable roots", () => {
       ]);
     } finally {
       sleeper.kill("SIGKILL");
+    }
+  });
+
+  it("snap rows ignore the launcher and same-name PATH copies; only the root marks in use", async () => {
+    const env = createEnv();
+    // /snap/bin/firefox is a symlink to the generic snapd launcher: a
+    // launcher-shaped process on PATH must not claim the firefox row.
+    const launcher = join(env.root, "usr/lib/snapd/snap");
+    mkdirSync(dirname(launcher), { recursive: true });
+    copyFileSync("/usr/bin/sleep", launcher);
+    chmodSync(launcher, 0o755);
+    symlinkSync(launcher, join(env.binDir, "firefox"));
+    const prober = new InUseProber(env.env());
+    const row = (): ToolStatus => ({
+      surface: "snap",
+      tool: "firefox",
+      installed: true,
+      applyCommand: "sudo snap refresh firefox",
+      executableRoots: [join(env.root, "snap/firefox")],
+    });
+    const launcherProcess = spawn(join(env.binDir, "firefox"), ["60"], {
+      stdio: "ignore",
+    });
+    try {
+      await untilProcessAppears();
+      const rows = [row()];
+      await markInUse(snapSurface, rows, prober);
+      expect(rows[0]?.inUse).toBe(false);
+      expect(rows[0]?.inUseDetail).toBeUndefined();
+    } finally {
+      launcherProcess.kill("SIGKILL");
+    }
+    const exe = snapSleeper(env);
+    const imageProcess = spawn(exe, ["60"], { stdio: "ignore" });
+    try {
+      await untilProcessAppears();
+      const rows = [row()];
+      await markInUse(snapSurface, rows, new InUseProber(env.env()));
+      expect(rows[0]?.inUse).toBe(true);
+      expect(rows[0]?.inUseDetail).toBe(
+        `process ${imageProcess.pid} runs ${exe}`,
+      );
+    } finally {
+      imageProcess.kill("SIGKILL");
     }
   });
 

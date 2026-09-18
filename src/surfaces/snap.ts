@@ -128,12 +128,6 @@ function isLaunchable(app: SnapApp): boolean {
   return !app.daemon && str(app.name) !== undefined;
 }
 
-function launchableNames(snap: SnapSnap): string[] {
-  return appsOf(snap)
-    .filter(isLaunchable)
-    .map((app) => app.name as string);
-}
-
 /**
  * Whether a snap becomes a row. A configured name overrides the filter: the
  * user asked for that snap, so a daemon-only or non-app snap is inventoried
@@ -196,8 +190,6 @@ function buildRow(
     state.refreshInhibit = refreshInhibit;
   }
   if (Object.keys(state).length > 0) row.snapState = state;
-  const executables = launchableNames(snap);
-  if (executables.length > 0) row.executables = executables;
   // A snap app runs under <mount-dir>/<name>/<revision>/..., never at the
   // launcher symlink on PATH, so in-use matching matches this prefix.
   row.executableRoots = [`${mountDir}/${name}`];
@@ -306,6 +298,11 @@ export const snapSurface: Surface = {
     return undefined;
   },
 
-  /** A refresh replaces the app images the snap's non-daemon apps name. */
-  replacedExecutables: (row) => row.executables ?? [],
+  /**
+   * No PATH names: /snap/bin/<app> is a symlink to the generic snapd
+   * launcher, so a name would claim every launcher process (and any
+   * same-named non-snap copy). The declared executable root is the only
+   * process-path signal.
+   */
+  replacedExecutables: () => [],
 };

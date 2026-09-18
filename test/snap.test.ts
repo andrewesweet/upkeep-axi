@@ -315,7 +315,7 @@ describe("snap surface (report-only)", () => {
     });
   });
 
-  it("derives executables and the executable root from the snap's mount dir", async () => {
+  it("derives the executable root from the snap's mount dir", async () => {
     const fake = stdEnv();
     await withFixture(fake, async (fixture) => {
       const rows = await directStatus(
@@ -325,7 +325,7 @@ describe("snap surface (report-only)", () => {
         { ok: [FIREFOX_CANDIDATE] },
       );
       expect(rows).toHaveLength(1);
-      expect(rows[0].executables).toEqual(["firefox", "geckodriver"]);
+      expect(rows[0].executables).toBeUndefined();
       // A snap app runs under <mount-dir>/<name>/<revision>/..., never at
       // the launcher symlink on PATH.
       expect(rows[0].executableRoots).toEqual(["/wsl/snap/firefox"]);
