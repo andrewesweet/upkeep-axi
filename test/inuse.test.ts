@@ -10,7 +10,7 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { InUseProber, markInUse } from "../src/inuse.js";
+import { InUseProber, markInUse, type InUseFact } from "../src/inuse.js";
 import { snapSurface } from "../src/surfaces/snap.js";
 import type { ToolStatus } from "../src/types.js";
 import { createEnv, startSnapdFixture, type FakeEnv } from "./helpers.js";
@@ -120,7 +120,7 @@ describe("in-use executable roots", () => {
           applyCommand: "sudo snap refresh firefox",
         },
       ];
-      await markInUse({}, rows, prober);
+      await markInUse({ id: "snap", managerTool: "snap" }, rows, prober);
       expect(rows[0]?.inUse).toBe(true);
       expect(rows[0]?.inUseDetail).toBe(`process ${sleeper.pid} runs ${exe}`);
       expect(rows[1]?.inUse).toBe(false);
@@ -291,8 +291,222 @@ describe("in-use executable roots", () => {
     // herdr and no-mistakes are absent from the fake PATH, and no process
     // runs under the root: a missing source contributes nothing, and the
     // measured-clear row reads false - never absent, never true.
-    await markInUse({}, rows, prober);
+    await markInUse({ id: "snap", managerTool: "snap" }, rows, prober);
     expect(rows[0]?.inUse).toBe(false);
     expect(rows[0]?.inUseDetail).toBeUndefined();
+  });
+});
+
+/**
+ * A minimal surface in the claude/pi shape: every row's apply replaces the
+ * manager binary unless the row declares its own executables.
+ */
+function sharedExecutableSurface() {
+  return {
+    id: "testsurface",
+    managerTool: "testtool",
+    replacedExecutables: (row: ToolStatus) => row.executables ?? ["testtool"],
+  };
+}
+
+/** A prober that counts factsFor calls, to pin the per-key memoisation. */
+function countingProber(env: NodeJS.ProcessEnv): {
+  prober: InUseProber;
+  calls(): number;
+} {
+  const prober = new InUseProber(env);
+  let calls = 0;
+  const inner = prober.factsFor.bind(prober);
+  Object.defineProperty(prober, "factsFor", {
+    value: (executables: string[], roots?: string[]): Promise<InUseFact[]> => {
+      calls += 1;
+      return inner(executables, roots);
+    },
+  });
+  return { prober, calls: () => calls };
+}
+
+describe("in-use fact collapse", () => {
+  it("references the manager row when a row measures the same fact set", async () => {
+    const env = createEnv();
+    const exe = join(env.root, "lib/testtool-real");
+    mkdirSync(dirname(exe), { recursive: true });
+    copyFileSync("/usr/bin/sleep", exe);
+    chmodSync(exe, 0o755);
+    symlinkSync(exe, join(env.binDir, "testtool"));
+    const prober = new InUseProber(env.env());
+    const sleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+      stdio: "ignore",
+    });
+    try {
+      await untilProcessAppears();
+      const rows: ToolStatus[] = [
+        {
+          surface: "testsurface",
+          tool: "testtool",
+          installed: true,
+          applyCommand: "testtool update",
+        },
+        {
+          surface: "testsurface",
+          tool: "plugin@official",
+          installed: true,
+          applyCommand: "testtool plugin update plugin@official",
+          executables: ["testtool"],
+        },
+        {
+          surface: "testsurface",
+          tool: "marketplace",
+          installed: true,
+          applyCommand: "testtool marketplace update marketplace",
+          executables: ["testtool"],
+        },
+        {
+          surface: "testsurface",
+          tool: "quiet",
+          installed: true,
+          applyCommand: "quiet update",
+          executables: ["quietexe"],
+        },
+      ];
+      await markInUse(sharedExecutableSurface(), rows, prober);
+      // The manager row states the fact; rows measuring the same set
+      // reference it instead of repeating it; a row measuring nothing
+      // stays clear.
+      expect(rows[0]?.inUse).toBe(true);
+      expect(rows[0]?.inUseDetail).toBe(`process ${sleeper.pid} runs ${exe}`);
+      expect(rows[1]?.inUseDetail).toBe("same as testsurface,testtool");
+      expect(rows[2]?.inUseDetail).toBe("same as testsurface,testtool");
+      expect(rows[3]?.inUse).toBe(false);
+      expect(rows[3]?.inUseDetail).toBeUndefined();
+    } finally {
+      sleeper.kill("SIGKILL");
+    }
+  });
+
+  it("keeps the full detail when a row measures a different set", async () => {
+    const env = createEnv();
+    const managerExe = join(env.root, "lib/testtool-real");
+    const workerExe = join(env.root, "lib/worker-real");
+    mkdirSync(dirname(managerExe), { recursive: true });
+    copyFileSync("/usr/bin/sleep", managerExe);
+    copyFileSync("/usr/bin/sleep", workerExe);
+    chmodSync(managerExe, 0o755);
+    chmodSync(workerExe, 0o755);
+    symlinkSync(managerExe, join(env.binDir, "testtool"));
+    symlinkSync(workerExe, join(env.binDir, "workerexe"));
+    const prober = new InUseProber(env.env());
+    const managerSleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+      stdio: "ignore",
+    });
+    const workerSleeper = spawn(join(env.binDir, "workerexe"), ["60"], {
+      stdio: "ignore",
+    });
+    try {
+      await untilProcessAppears();
+      const rows: ToolStatus[] = [
+        {
+          surface: "testsurface",
+          tool: "testtool",
+          installed: true,
+          applyCommand: "testtool update",
+        },
+        {
+          surface: "testsurface",
+          tool: "worker",
+          installed: true,
+          applyCommand: "worker update",
+          executables: ["workerexe"],
+        },
+      ];
+      await markInUse(sharedExecutableSurface(), rows, prober);
+      expect(rows[0]?.inUseDetail).toBe(
+        `process ${managerSleeper.pid} runs ${managerExe}`,
+      );
+      // Different facts: the row keeps its own; no manager reference.
+      expect(rows[1]?.inUseDetail).toBe(
+        `process ${workerSleeper.pid} runs ${workerExe}`,
+      );
+    } finally {
+      managerSleeper.kill("SIGKILL");
+      workerSleeper.kill("SIGKILL");
+    }
+  });
+
+  it("never references a manager row that measures clear", async () => {
+    const env = createEnv();
+    const exe = join(env.root, "lib/worker-real");
+    mkdirSync(dirname(exe), { recursive: true });
+    copyFileSync("/usr/bin/sleep", exe);
+    chmodSync(exe, 0o755);
+    symlinkSync(exe, join(env.binDir, "workerexe"));
+    const prober = new InUseProber(env.env());
+    const sleeper = spawn(join(env.binDir, "workerexe"), ["60"], {
+      stdio: "ignore",
+    });
+    try {
+      await untilProcessAppears();
+      const rows: ToolStatus[] = [
+        {
+          surface: "testsurface",
+          tool: "testtool",
+          installed: true,
+          applyCommand: "testtool update",
+        },
+        {
+          surface: "testsurface",
+          tool: "worker",
+          installed: true,
+          applyCommand: "worker update",
+          executables: ["workerexe"],
+        },
+      ];
+      await markInUse(sharedExecutableSurface(), rows, prober);
+      // The manager measures clear, so there is nothing to reference: the
+      // in-use row states its own fact in full.
+      expect(rows[0]?.inUse).toBe(false);
+      expect(rows[1]?.inUseDetail).toBe(`process ${sleeper.pid} runs ${exe}`);
+    } finally {
+      sleeper.kill("SIGKILL");
+    }
+  });
+
+  it("measures once per executables/roots key, not once per row", async () => {
+    const env = createEnv();
+    const rows: ToolStatus[] = [
+      {
+        surface: "testsurface",
+        tool: "testtool",
+        installed: true,
+        applyCommand: "testtool update",
+      },
+      {
+        surface: "testsurface",
+        tool: "plugin@official",
+        installed: true,
+        applyCommand: "testtool plugin update plugin@official",
+        executables: ["testtool"],
+      },
+      {
+        surface: "testsurface",
+        tool: "marketplace",
+        installed: true,
+        applyCommand: "testtool marketplace update marketplace",
+        executables: ["testtool"],
+      },
+      {
+        surface: "testsurface",
+        tool: "quiet",
+        installed: true,
+        applyCommand: "quiet update",
+        executables: ["quietexe"],
+      },
+    ];
+    const { prober, calls } = countingProber(env.env());
+    await markInUse(sharedExecutableSurface(), rows, prober);
+    // One shared key (manager, plugin, marketplace) and one own key.
+    expect(calls()).toBe(2);
+    // Nothing runs on this host: every row still reads clear, not absent.
+    expect(rows.map((row) => row.inUse)).toEqual([false, false, false, false]);
   });
 });

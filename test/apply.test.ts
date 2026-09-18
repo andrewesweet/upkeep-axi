@@ -536,6 +536,111 @@ exit 1`,
   });
 });
 
+describe("apply --all: candidacy before the in-use refusal", () => {
+  const herdrAgentActive = (fake: FakeEnv, agent: string): void => {
+    fake.writeFake(
+      "herdr",
+      `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+if [ "$1" = "agent" ] && [ "$2" = "list" ]; then
+  echo '{"result":{"agents":[{"agent":"${agent}","agent_status":"working"}]}}'
+  exit 0
+fi
+exit 1`,
+    );
+  };
+
+  it("drops tierless in-use rows from skipped[]: they were never candidates", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(
+      ["apply", "--all", "--tier", "minor", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: Array<{ surface: string; tool: string }>;
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    // The tier decides candidacy first: the minor gaps still plan.
+    expect(model.plan.map((row) => `${row.surface}/${row.tool}`)).toContain(
+      "npm/typescript",
+    );
+    // The claude surface has no update check, so no row has a tier: in use
+    // or free, none was ever a candidate under --all, and none is skipped.
+    expect(
+      (model.skipped ?? []).filter((row) => row.surface === "claude"),
+    ).toEqual([]);
+  });
+
+  it("still refuses an in-use row the tier would have planned", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "tsc");
+    const result = await runCli(
+      ["apply", "--all", "--tier", "minor", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: Array<{ surface: string; tool: string }>;
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    // typescript has a minor gap: it was a candidate, so the in-use
+    // refusal still names it.
+    expect(model.plan.some((row) => row.tool === "typescript")).toBe(false);
+    expect(model.skipped).toContainEqual({
+      surface: "npm",
+      tool: "typescript",
+      reason: "in use: herdr agent tsc is active",
+    });
+  });
+
+  it("a named surface keeps every in-use refusal; rows measuring the manager's set reference it", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(["apply", "claude", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: unknown[];
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    expect(model.plan).toEqual([]);
+    // The caller pointed at the surface, so in-use refusal outranks the
+    // tier. The manager row carries the facts; every other claude row
+    // replaces the same binary and references it, so the one fact is
+    // stated once.
+    expect(model.skipped).toEqual([
+      {
+        surface: "claude",
+        tool: "claude",
+        reason: "in use: herdr agent claude is active",
+      },
+      {
+        surface: "claude",
+        tool: "gopls-lsp@claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "context7@claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "caveman",
+        reason: "in use: same as claude,claude",
+      },
+    ]);
+  });
+});
+
 describe("AXI output discipline", () => {
   /** A mise fake whose upgrade delegate refuses after 60 chatty lines. */
   function chattyEnv(): FakeEnv {
