@@ -6,7 +6,7 @@
 review:
   path_instructions:
     - path: src/**
-      instructions: |
+      instructions: &axi |
         upkeep-axi is an AXI CLI. Check this change against the ten principles in
         `.agents/skills/axi/SKILL.md`. For each touched principle—output shape and
         size, defaults and `--fields`, truncation, aggregates, empty states, errors
@@ -17,24 +17,6 @@ review:
         block's row shape must bump `schemaVersion` and update `README` and the
         generated skill.
     - path: bin/**
-      instructions: |
-        upkeep-axi is an AXI CLI. Check this change against the ten principles in
-        `.agents/skills/axi/SKILL.md`. For each touched principle—output shape and
-        size, defaults and `--fields`, truncation, aggregates, empty states, errors
-        and exit codes and hints, ambient context, content first, contextual
-        disclosure, and help and the `--version` fast path—state whether it is
-        upheld. Treat a departure as a finding unless `VISION.md` or `AGENTS.md`
-        documents it as a deliberate choice. A change to the default row set or a
-        block's row shape must bump `schemaVersion` and update `README` and the
-        generated skill.
+      instructions: *axi
     - path: skills/**
-      instructions: |
-        upkeep-axi is an AXI CLI. Check this change against the ten principles in
-        `.agents/skills/axi/SKILL.md`. For each touched principle—output shape and
-        size, defaults and `--fields`, truncation, aggregates, empty states, errors
-        and exit codes and hints, ambient context, content first, contextual
-        disclosure, and help and the `--version` fast path—state whether it is
-        upheld. Treat a departure as a finding unless `VISION.md` or `AGENTS.md`
-        documents it as a deliberate choice. A change to the default row set or a
-        block's row shape must bump `schemaVersion` and update `README` and the
-        generated skill.
+      instructions: *axi
