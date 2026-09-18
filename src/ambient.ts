@@ -6,10 +6,11 @@ import type { StatusSnapshot } from "./snapshot.js";
 import type { ToolStatus } from "./types.js";
 
 /**
- * The session-start dashboard (AXI §7): only the rows an agent needs to
- * orient - known gaps and in-use conflicts - bounded to a few lines, with
- * the counts pre-computed so nobody recounts rows (AXI §4). Deep data stays
- * in `status`; this view never widens into apply/pin text.
+ * The session-start dashboard (AXI §7): only the rows an agent can act on -
+ * known gaps - bounded to a few lines, with the counts pre-computed so
+ * nobody recounts rows (AXI §4). An in-use row without a gap is context,
+ * not an action: it stays in the `ambient:` count and off the row list.
+ * Deep data stays in `status`; this view never widens into apply/pin text.
  */
 
 /** Hard cap on dashboard rows; the rest are named by a help hint. */
@@ -37,7 +38,7 @@ export interface AmbientModel {
   snapshotAgeDays?: number;
   /** One-line pre-computed summary, spelled identically in TOON and JSON. */
   ambient: string;
-  /** Gap and in-use rows, most severe first, capped at AMBIENT_MAX_ROWS. */
+  /** Known-gap rows, in-use gaps first, capped at AMBIENT_MAX_ROWS. */
   tools: AmbientRow[];
   /** Present only when the cap hid rows. */
   hidden?: number;
@@ -51,14 +52,16 @@ function isGap(row: ToolStatus): boolean {
 }
 
 /**
- * The rows the dashboard shows: every known gap and every in-use conflict.
- * In-use outranks tier (the house rule), then tier severity, then registry
- * order - a stable sort over the order collectStatus produced.
+ * The rows the dashboard shows: every known gap - the rows an agent can
+ * act on now. An in-use row without a gap is dropped here (it stays in the
+ * `ambient:` count, which is where the in-use tally is read); a row that is
+ * both gapped and in use leads, then tier severity, then registry order -
+ * a stable sort over the order collectStatus produced.
  */
 export function ambientRows(tools: ToolStatus[]): ToolStatus[] {
   return tools
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => isGap(row) || row.inUse === true)
+    .filter(({ row }) => isGap(row))
     .sort(
       (a, b) =>
         Number(b.row.inUse === true) - Number(a.row.inUse === true) ||
@@ -152,7 +155,9 @@ export function buildAmbientModel(
     generatedAt,
     schemaVersion: SCHEMA_VERSION,
     snapshotAt: snapshot.generatedAt,
-    ambient: ambientSummary(rows, failedProbes, staleDays),
+    // The summary counts the whole inventory, not the rows: an in-use row
+    // without a gap never appears in tools[] but stays in the tally.
+    ambient: ambientSummary(tools, failedProbes, staleDays),
     tools: rows.slice(0, AMBIENT_MAX_ROWS).map((row) => ({
       surface: row.surface,
       tool: row.tool,
