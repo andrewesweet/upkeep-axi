@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runCli } from "./helpers.js";
 
@@ -45,16 +44,14 @@ describe.skipIf(!LIVE)("live smoke: real status on this host", () => {
       // The snap surface is accepted like any other: a snap row, when the
       // host has one, carries only the documented row shape, and its apply
       // is the exact report-only manual command. Versions, tiers, and
-      // overlap are never asserted. A stat, never a connection: only the
-      // status run itself talks to the socket.
-      const socketPresent = existsSync("/run/snapd.socket");
+      // overlap are never asserted.
       for (const row of model.tools) {
         if (row.surface !== "snap") continue;
         for (const field of Object.keys(row)) {
           expect(DOCUMENTED_ROW_FIELDS.has(field)).toBe(true);
         }
         expect(typeof row.installed).toBe("boolean");
-        if (socketPresent && row.installed === true) {
+        if (row.installed === true) {
           expect(row.apply).toMatch(/^sudo snap refresh /);
         }
       }
