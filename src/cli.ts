@@ -594,6 +594,7 @@ async function applyCommand(
   const renderOptions = {
     full,
     selection,
+    configPath: parsed.configPath,
     ...(plan.length === 0
       ? {
           emptyPlanHelp: [

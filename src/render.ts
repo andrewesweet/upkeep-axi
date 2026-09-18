@@ -415,15 +415,18 @@ export function renderStatusJson(
  * literal "...". The generic --all hint appears only when the caller did
  * not already invoke --all.
  */
-function planHelpHints(selection: ApplySelection): string[] {
-  const command = selection.all
-    ? `upkeep-axi apply --all --tier ${selection.tier} --execute`
-    : [
-        "upkeep-axi apply",
-        selection.surface,
-        ...selection.tools,
-        "--execute",
-      ].join(" ");
+function planHelpHints(
+  selection: ApplySelection,
+  configPath: string | undefined,
+): string[] {
+  const command = [
+    "upkeep-axi apply",
+    ...(selection.all
+      ? ["--all", "--tier", selection.tier]
+      : [selection.surface, ...selection.tools]),
+    "--execute",
+    ...(configPath === undefined ? [] : ["--config", configPath]),
+  ].join(" ");
   const hints = [`Run \`${command}\` to run this plan; nothing has run yet`];
   if (!selection.all) {
     hints.push(
@@ -445,6 +448,8 @@ export interface ApplyRenderOptions {
   emptyPlanHelp?: string[];
   /** The parsed selection: the plan hint spells its exact command. */
   selection: ApplySelection;
+  /** The caller's --config path, carried into the plan hint when supplied. */
+  configPath?: string;
 }
 
 /** Options of the JSON renderer: it carries no help block. */
@@ -545,7 +550,7 @@ export function renderApplyToon(
     }
     help.push(...EXECUTED_HELP);
   } else {
-    help.push(...planHelpHints(options.selection));
+    help.push(...planHelpHints(options.selection, options.configPath));
   }
   return `${encode(body)}\nhelp[${help.length}]:\n${help
     .map((hint) => `  ${hint}`)

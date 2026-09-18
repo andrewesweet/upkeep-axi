@@ -131,6 +131,17 @@ describe("apply planning (no --execute)", () => {
     );
   });
 
+  it("carries a supplied --config path into the plan hint", async () => {
+    const fake = stdEnv();
+    const alt = join(fake.root, "alt-config.json");
+    copyFileSync(fake.configPath, alt);
+    const result = await runCli(["apply", "npm", "--config", alt], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      `Run \`upkeep-axi apply npm --execute --config ${alt}\` to run this plan; nothing has run yet`,
+    );
+  });
+
   it("naming tools selects them whatever their tier", async () => {
     const fake = stdEnv();
     const result = await runCli(
