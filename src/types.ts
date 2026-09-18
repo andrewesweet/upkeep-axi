@@ -130,6 +130,25 @@ export interface ForkSync {
   files?: string[];
 }
 
+/**
+ * snap only: the vendor facts behind a row (tracked channel, revisions,
+ * holds), carried verbatim from snapd. Nothing here is rendered yet; the
+ * sparse snap_state[] block that displays these facts is a deliberate
+ * schema change owned by a later slice.
+ */
+export interface SnapState {
+  /** The channel this snap tracks (e.g. latest/stable, esr/stable). */
+  channel?: string;
+  /** The installed revision. */
+  revision?: string;
+  /** The offered revision, when snapd offers this host a refresh candidate. */
+  availableRevision?: string;
+  /** Vendor hold facts, verbatim from snapd (the value shape is snapd's). */
+  hold?: unknown;
+  gatingHold?: unknown;
+  refreshInhibit?: unknown;
+}
+
 /** One row per tool per surface. Absent facts stay absent. */
 export interface ToolStatus {
   surface: string;
@@ -182,6 +201,12 @@ export interface ToolStatus {
   refusal?: string;
   /** Firstmate fork sync facts, when this row is the fork sync row. */
   sync?: ForkSync;
+  /**
+   * snap only: the tracked channel, revisions, and hold facts behind the
+   * row, kept verbatim from snapd. Carried on the row but not rendered;
+   * rendering them is the later snap_state[] slice.
+   */
+  snapState?: SnapState;
 }
 
 /**

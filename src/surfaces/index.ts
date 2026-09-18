@@ -15,6 +15,7 @@ import { npmSurface } from "./npm.js";
 import { opencodeSurface } from "./opencode.js";
 import { piSurface } from "./pi.js";
 import { skillsSurface } from "./skills.js";
+import { snapSurface } from "./snap.js";
 import { uvSurface } from "./uv.js";
 
 /**
@@ -32,6 +33,7 @@ export const SURFACE_REGISTRY: Surface[] = [
   skillsSurface,
   fnmSurface,
   aptSurface,
+  snapSurface,
   claudeSurface,
   codexSurface,
   opencodeSurface,
