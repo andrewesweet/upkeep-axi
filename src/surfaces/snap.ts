@@ -1,11 +1,12 @@
-import { realpathSync } from "node:fs";
+import { readlinkSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import {
   snapdRefreshCandidates,
   snapdSnaps,
   snapdSocketPath,
   snapdSystemInfo,
 } from "../snapd.js";
-import { pathCandidates } from "../exec.js";
+import { isExecutableFile, pathCandidates } from "../exec.js";
 import { compareVersions, parseVersion, tierBetween } from "../semver.js";
 import type {
   PathOverlap,
@@ -238,8 +239,47 @@ function underDir(path: string, dir: string): boolean {
   return path === dir || path.startsWith(`${dir}/`);
 }
 
+/** The path a symlink names (resolved against its own dir), else undefined. */
+function linkTarget(path: string): string | undefined {
+  try {
+    return resolve(dirname(path), readlinkSync(path));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Measure duplicate-install overlap: for each launchable app command, the
+ * The launcher spellings this snap owns in the snap bin dir, per launchable
+ * app. snapd always installs the qualified `<snap>.<app>` launcher and, when
+ * the bare name is unambiguous, a bare `<app>` symlink to it; the snap's
+ * default app (name equal to the snap's) has the bare spelling only. The
+ * qualified spelling is claimed when it is an executable file; the bare one
+ * only when it is an executable file and either no qualified launcher
+ * exists or the bare name links to it - otherwise the bare name belongs to
+ * another snap (or a same-named copy) and is not this row's to claim.
+ */
+function claimedLaunchers(
+  snapName: string,
+  apps: string[],
+  snapBinDir: string,
+): string[] {
+  const claimed: string[] = [];
+  for (const app of apps) {
+    const qualified = `${snapName}.${app}`;
+    const qualifiedPath = join(snapBinDir, qualified);
+    const hasQualified = isExecutableFile(qualifiedPath);
+    if (hasQualified) claimed.push(qualified);
+    const barePath = join(snapBinDir, app);
+    if (!isExecutableFile(barePath)) continue;
+    if (!hasQualified || linkTarget(barePath) === qualifiedPath) {
+      claimed.push(app);
+    }
+  }
+  return claimed;
+}
+
+/**
+ * Measure duplicate-install overlap: for each claimed launcher spelling, the
  * snap-owned PATH candidate is the one under snapd's snap-bin-dir; every
  * other candidate whose real target differs from the launcher's is one
  * overlap row, regardless of version ordering. Aliases resolving to the
@@ -285,9 +325,10 @@ function measureOverlap(
  * gap. Rows are user-launchable app snaps (a configured name overrides the
  * filter); each carries the tracked channel, revisions, and hold facts
  * verbatim (projected into the sparse snap_state[] block by the renderer),
- * the exact `sudo snap refresh <name>` command, and no pin. For each app
- * command the surface also measures duplicate-install overlap on this run's
- * PATH: a snap-owned launcher beside another executable with a different
+ * the exact `sudo snap refresh <name>` command, and no pin. For each
+ * launcher spelling the snap owns in the snap bin dir (`<snap>.<app>` and
+ * an unambiguous bare `<app>`) the surface also measures duplicate-install
+ * overlap on this run's PATH: that launcher beside another executable with a different
  * real target, one row per differing copy, carried on the row (see
  * src/types.ts PathOverlap). An absent socket is normal absence; a read
  * failure after detection is one
@@ -374,7 +415,7 @@ export const snapSurface: Surface = {
       if (includeSnap(snap, configured)) {
         const row = buildRow(snap, candidatesByName, mountDir);
         const overlap = measureOverlap(
-          appCommandsOf(snap),
+          claimedLaunchers(row.tool, appCommandsOf(snap), snapBinDir),
           snapBinDir,
           ctx.env,
         );

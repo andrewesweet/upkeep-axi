@@ -641,6 +641,51 @@ describe("snap overlap and snap_state (schema v4)", () => {
     });
   });
 
+  it("reports a non-default app through its bare alias beside another copy", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin, otherbin } = binDirs(fake);
+      // snapd's layout for firefox: the bare default launcher, the
+      // qualified geckodriver launcher, and the bare alias linking to it.
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      fake.writeFakeIn(snapbin, "firefox.geckodriver", "exit 0");
+      symlinkSync("firefox.geckodriver", join(snapbin, "geckodriver"));
+      fake.writeFakeIn(otherbin, "geckodriver", "exit 0");
+      pinSnapSurface(fake, fixture);
+      queueWithBinDir(fixture, snapbin, firefoxSnap(), [FIREFOX_CANDIDATE]);
+      const result = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain(
+        "overlap[1]{surface,tool,command,resolvedPath,otherPath}:\n" +
+          `  snap,firefox,geckodriver,${snapbin}/geckodriver,${otherbin}/geckodriver`,
+      );
+    });
+  });
+
+  it("never claims a bare name that is not this snap's alias", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin, otherbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      fake.writeFakeIn(snapbin, "firefox.geckodriver", "exit 0");
+      // A bare geckodriver launcher in the snap bin dir that is another
+      // snap's, not an alias of firefox.geckodriver.
+      fake.writeFakeIn(snapbin, "geckodriver", "exit 0");
+      fake.writeFakeIn(otherbin, "geckodriver", "exit 0");
+      pinSnapSurface(fake, fixture);
+      queueWithBinDir(fixture, snapbin, firefoxSnap(), [FIREFOX_CANDIDATE]);
+      const result = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      expect(result.code).toBe(0);
+      expect(result.stdout).not.toContain("overlap[");
+    });
+  });
+
   it("emits no overlap when two PATH names resolve to one launcher", async () => {
     const fake = stdEnv();
     await withFixture(fake, async (fixture) => {
