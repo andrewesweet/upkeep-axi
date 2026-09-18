@@ -157,7 +157,7 @@ A missing default file means: every registry surface enabled, no per-tool entrie
 - `rebootRequiredPath` - apt surface only: path of the reboot-required flag; defaults to `/var/run/reboot-required`.
 - `applyTimeoutMs` - per-surface budget for each apply delegate, a positive integer of milliseconds; defaults to `900000`.
 - `clonePath` - firstmate surface only: the local clone of the fork (default `/home/andre/tools/firstmate`); its remotes `upstream`/`origin` and branch `main` are fixed.
-- `socketPath` - snap surface only: the snapd REST API Unix socket (default `/run/snapd.socket`). An absent socket or refused connection reports the manager as not installed; any other read failure is a probe error.
+- `socketPath` - snap surface only: the snapd REST API Unix socket (default `/run/snapd.socket`), primarily a test and nonstandard-install option. An absent socket or refused connection reports the manager as not installed; any other read failure is a probe error.
 
 A configured entry the manager does not know reports `installed=false`. A malformed config is a usage error, never silently ignored.
 

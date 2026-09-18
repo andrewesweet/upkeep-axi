@@ -7,8 +7,10 @@ import {
   createEnv,
   installStandardFakes,
   runCli,
+  startSnapdFixture,
   type CliResult,
   type FakeEnv,
+  type SnapdFixture,
 } from "./helpers.js";
 import { AMBIENT_MAX_ROWS } from "../src/ambient.js";
 
@@ -282,5 +284,138 @@ exit 1`,
       "ambient: 9 gaps (3 major, 6 minor), 0 in use",
     );
     expect(result.stdout).not.toContain("npm,typescript,");
+  });
+});
+
+/**
+ * Snap-fixture data: the motivating snap row (the same shape the snap
+ * surface tests use), kept local so these tests depend on no snap-module
+ * internals.
+ */
+const SNAP_SYSTEM_INFO = { version: "2.76.3", series: "16" };
+
+function firefoxSnap(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    name: "firefox",
+    status: "active",
+    type: "app",
+    version: "154.0.1-1",
+    revision: "8803",
+    "tracking-channel": "latest/stable",
+    apps: [{ name: "firefox" }, { name: "geckodriver" }],
+    ...overrides,
+  };
+}
+
+const FIREFOX_CANDIDATE = {
+  name: "firefox",
+  version: "156.0-1",
+  revision: "8929",
+};
+
+/** The four reads an unfiltered status run makes against snapd. */
+function queueSnapReads(
+  fixture: SnapdFixture,
+  snaps: unknown,
+  candidates: unknown,
+): void {
+  fixture.queue(
+    { ok: SNAP_SYSTEM_INFO },
+    { ok: SNAP_SYSTEM_INFO },
+    { ok: snaps },
+    { ok: candidates },
+  );
+}
+
+describe("ambient and the snap surface (the dashboard reads the snapshot only)", () => {
+  it("shows a snap gap from the snapshot at its normal tier position", async () => {
+    const fake = stdEnv();
+    const fixture = await startSnapdFixture(fake.root);
+    try {
+      fake.writeConfig({
+        surfaces: { snap: { socketPath: fixture.socketPath } },
+      });
+      queueSnapReads(fixture, [firefoxSnap()], [FIREFOX_CANDIDATE]);
+      await takeInventory(fake);
+      const result = await runCli(["ambient"], fake.env());
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      // The standard fakes' 10 gaps plus the snap major gap.
+      expect(unquoted(result.stdout)).toContain(
+        "ambient: 11 gaps (4 major, 7 minor), 0 in use",
+      );
+      // Majors first, registry order inside a tier: snap sits after apt.
+      const rows = result.stdout
+        .split("\n")
+        .filter((line) => line.startsWith("  "));
+      expect(rows[0]).toBe("  npm,unparsable,dev,2026.09.0,major,false");
+      expect(rows[1]).toBe("  mise,node,20.11.0,22.0.0,major,false");
+      expect(rows[2]).toBe("  apt,ripgrep,14.1.1,15.0.0,major,false");
+      expect(rows[3]).toBe("  snap,firefox,154.0.1-1,156.0-1,major,false");
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("leaves a current snap row out of the dashboard", async () => {
+    const fake = stdEnv();
+    const fixture = await startSnapdFixture(fake.root);
+    try {
+      fake.writeConfig({
+        surfaces: { snap: { socketPath: fixture.socketPath } },
+      });
+      // snapd offers this host no refresh candidate: the snap row is
+      // installed and current, with latest and tier absent.
+      queueSnapReads(
+        fixture,
+        [firefoxSnap({ version: "156.0-1", revision: "8929" })],
+        [],
+      );
+      await takeInventory(fake);
+      const result = await runCli(["ambient"], fake.env());
+      expect(result.code).toBe(0);
+      // The gap counts stay the standard fakes' own: a current snap row
+      // adds none, so it does not appear.
+      expect(unquoted(result.stdout)).toContain(
+        "ambient: 10 gaps (3 major, 7 minor), 0 in use",
+      );
+      expect(result.stdout).not.toContain("snap,firefox");
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("renders the snapshot after the socket is gone, without probing it", async () => {
+    const fake = stdEnv();
+    const fixture = await startSnapdFixture(fake.root);
+    try {
+      fake.writeConfig({
+        surfaces: { snap: { socketPath: fixture.socketPath } },
+      });
+      queueSnapReads(fixture, [firefoxSnap()], [FIREFOX_CANDIDATE]);
+      await takeInventory(fake);
+    } finally {
+      await fixture.close();
+    }
+    // The fixture is closed and its socket file removed: nothing can answer
+    // a snapd read now. The dashboard reads the saved inventory only.
+    expect(fixture.requests).toHaveLength(4);
+    const result = await runHookEntrypoint(offline(fake));
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    // The snapshot renders unchanged: the snap gap survives the dead socket,
+    // and no probe failure appeared because the dashboard never probed.
+    expect(unquoted(result.stdout)).toContain(
+      "ambient: 11 gaps (4 major, 7 minor), 0 in use",
+    );
+    expect(result.stdout).toContain(
+      "  snap,firefox,154.0.1-1,156.0-1,major,false",
+    );
+    expect(result.stdout).not.toContain("errors[");
+    expect(unquoted(result.stdout)).not.toContain("1 probe failed");
+    // The dead socket saw no request beyond the status run's four reads.
+    expect(fixture.requests).toHaveLength(4);
   });
 });
