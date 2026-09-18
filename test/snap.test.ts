@@ -852,6 +852,7 @@ describe("snap overlap and snap_state (schema v4)", () => {
     const fake = stdEnv();
     await withFixture(fake, async (fixture) => {
       const { snapbin, otherbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
       fake.writeFakeIn(otherbin, "firefox", "exit 0");
       pinSnapSurface(fake, fixture);
       const reads = [
@@ -886,6 +887,8 @@ describe("snap overlap and snap_state (schema v4)", () => {
       };
       // Every field is set in this fixture, so absent-vs-null cannot hide
       // a spelling difference between the two renderers.
+      expect(model.overlap).toHaveLength(1);
+      expect(model.snap_state).toHaveLength(1);
       expect(decoded.overlap).toEqual(model.overlap);
       expect(decoded.snap_state).toEqual(model.snap_state);
     });
