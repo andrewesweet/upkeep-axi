@@ -17,10 +17,25 @@ describe.skipIf(!LIVE)("live smoke: real status on this host", () => {
       expect(result.code).toBe(0);
       const model = JSON.parse(result.stdout) as {
         schemaVersion: number;
-        tools: unknown[];
+        tools: Array<{ surface: string; installed: unknown; apply?: unknown }>;
+        errors?: Array<{ surface: string }>;
       };
       expect(model.schemaVersion).toBe(4);
       expect(Array.isArray(model.tools)).toBe(true);
+      // The snap surface is accepted like any other: a snap row's apply,
+      // when the host has one, is the exact report-only manual command.
+      // Versions, tiers, and overlap are never asserted.
+      for (const row of model.tools) {
+        if (row.surface !== "snap") continue;
+        expect(typeof row.installed).toBe("boolean");
+        if (row.installed === true) {
+          expect(row.apply).toMatch(/^sudo snap refresh /);
+        }
+      }
+      // A host whose snapd socket is present reports no snap probe error.
+      expect(
+        model.errors?.some((error) => error.surface === "snap") ?? false,
+      ).toBe(false);
     },
     { timeout: 120_000 },
   );
