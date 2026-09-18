@@ -5,7 +5,7 @@ import type { JournalRecord } from "./journal.js";
 import { isReportOnlySurface } from "./surfaces/index.js";
 import type { ToolStatus } from "./types.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * The delegate output a report shows by default before truncating with a
@@ -119,6 +119,59 @@ interface AnnounceRow {
   claim: string;
 }
 
+interface OverlapRow {
+  surface: string;
+  tool: string;
+  command: string;
+  resolvedPath: string;
+  otherPath: string;
+}
+
+interface SnapStateRow {
+  surface: string;
+  tool: string;
+  channel?: string;
+  revision?: string;
+  available_revision?: string;
+  held_until?: string;
+  refresh_inhibited_until?: string;
+}
+
+/**
+ * The sparse snap_state[] projection of row.snapState: the tracked channel
+ * and revisions verbatim, and the hold facts mapped from snapd's documented
+ * field shapes - `hold` and `gating-hold` are RFC3339 timestamps (the time
+ * until which refreshes are held, the user hold shown when both exist), and
+ * `refresh-inhibit` is an object carrying `proceed-time`. A value whose
+ * shape snapd does not document stays absent - a hold is never an error and
+ * never a gap, and the verbatim value remains on row.snapState.
+ */
+function toSnapStateRow(row: ToolStatus): SnapStateRow {
+  const state = row.snapState;
+  return {
+    surface: row.surface,
+    tool: row.tool,
+    channel: state?.channel,
+    revision: state?.revision,
+    available_revision: state?.availableRevision,
+    held_until: holdTimestamp(state?.hold) ?? holdTimestamp(state?.gatingHold),
+    refresh_inhibited_until: proceedTime(state?.refreshInhibit),
+  };
+}
+
+/** A documented hold timestamp, verbatim; any other shape stays absent. */
+function holdTimestamp(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The proceed-time of a documented refresh-inhibit object, verbatim. */
+function proceedTime(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return holdTimestamp((value as { "proceed-time"?: unknown })["proceed-time"]);
+}
+
 interface ErrorRow {
   surface: string;
   tool: string;
@@ -147,6 +200,8 @@ interface StatusModel {
   tools: ToolRow[];
   errors?: ErrorRow[];
   skew?: SkewRow[];
+  overlap?: OverlapRow[];
+  snap_state?: SnapStateRow[];
   announce?: AnnounceRow[];
   in_use?: InUseRow[];
   sync?: SyncRow[];
@@ -191,6 +246,20 @@ export function statusModel(
       newerPath: row.skew?.newerPath as string,
       newerVersion: row.skew?.newerVersion,
     }));
+  }
+  const overlapRows = report.tools.flatMap((row) =>
+    (row.overlap ?? []).map((overlap) => ({
+      surface: row.surface,
+      tool: row.tool,
+      command: overlap.command,
+      resolvedPath: overlap.resolvedPath,
+      otherPath: overlap.otherPath,
+    })),
+  );
+  if (overlapRows.length > 0) model.overlap = overlapRows;
+  const stateRows = report.tools.filter((row) => row.snapState);
+  if (stateRows.length > 0) {
+    model.snap_state = stateRows.map(toSnapStateRow);
   }
   const announce = report.tools.filter((row) => row.announcement);
   if (announce.length > 0) {

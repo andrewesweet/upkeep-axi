@@ -132,9 +132,9 @@ export interface ForkSync {
 
 /**
  * snap only: the vendor facts behind a row (tracked channel, revisions,
- * holds), carried verbatim from snapd. Nothing here is rendered yet; the
- * sparse snap_state[] block that displays these facts is a deliberate
- * schema change owned by a later slice.
+ * holds), carried verbatim from snapd. The sparse snap_state[] block
+ * projects the displayable fields (channel, revisions, hold timestamps);
+ * the verbatim values stay the shape snapd sent.
  */
 export interface SnapState {
   /** The channel this snap tracks (e.g. latest/stable, esr/stable). */
@@ -147,6 +147,21 @@ export interface SnapState {
   hold?: unknown;
   gatingHold?: unknown;
   refreshInhibit?: unknown;
+}
+
+/**
+ * Measured duplicate-install overlap: one command name is reachable from
+ * two different executables - the snap launcher on PATH and another copy
+ * elsewhere (e.g. /snap/bin/firefox beside /usr/bin/firefox). Version
+ * ordering says nothing here: the paths are the only claim, and neither is
+ * attributed to an owner the measurement did not make.
+ */
+export interface PathOverlap {
+  command: string;
+  /** The snap-owned candidate, under snapd's snap-bin-dir. */
+  resolvedPath: string;
+  /** The other copy, whose real target differs from the launcher's. */
+  otherPath: string;
 }
 
 /** One row per tool per surface. Absent facts stay absent. */
@@ -203,10 +218,17 @@ export interface ToolStatus {
   sync?: ForkSync;
   /**
    * snap only: the tracked channel, revisions, and hold facts behind the
-   * row, kept verbatim from snapd. Carried on the row but not rendered;
-   * rendering them is the later snap_state[] slice.
+   * row, kept verbatim from snapd. The sparse snap_state[] block projects
+   * their displayable fields.
    */
   snapState?: SnapState;
+  /**
+   * Measured duplicate-install overlap for this row's launchable app
+   * commands: one entry per other PATH executable whose real target differs
+   * from the snap launcher's. Absent when every PATH copy resolves to the
+   * launcher target or no other copy exists.
+   */
+  overlap?: PathOverlap[];
 }
 
 /**

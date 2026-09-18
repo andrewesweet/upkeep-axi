@@ -160,7 +160,7 @@ describe("setup hooks", () => {
       hooks: Array<{ agent: string; installed: boolean; path: string }>;
       codexFeature: { enabled: boolean; path: string };
     };
-    expect(model.schemaVersion).toBe(3);
+    expect(model.schemaVersion).toBe(4);
     expect(model.hooks.map((row) => row.agent)).toEqual([
       "claude",
       "codex",

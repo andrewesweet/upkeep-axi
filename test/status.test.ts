@@ -1084,7 +1084,7 @@ describe("status --json", () => {
       skew?: unknown;
       announce?: unknown;
     };
-    expect(model.schemaVersion).toBe(3);
+    expect(model.schemaVersion).toBe(4);
     expect(typeof model.generatedAt).toBe("string");
     expect(model.tools).toHaveLength(41);
     const typescript = model.tools.find((row) => row.tool === "typescript");
@@ -1149,6 +1149,8 @@ describe("status --json", () => {
     expect(zizmor?.tier).toBeUndefined();
     expect("skew" in model).toBe(false);
     expect("announce" in model).toBe(false);
+    expect("overlap" in model).toBe(false);
+    expect("snap_state" in model).toBe(false);
   });
 
   it("carries skew and announcement blocks when present", async () => {

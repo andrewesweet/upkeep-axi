@@ -13,7 +13,7 @@ $ upkeep-axi
 bin: ~/.local/bin/upkeep-axi
 description: Report workstation update inventory across surfaces.
 generatedAt: "2026-09-13T11:02:36.440Z"
-schemaVersion: 3
+schemaVersion: 4
 tools[3]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:
   npm,typescript,true,5.6.3,5.7.2,minor,false,npm install -g typescript@latest,npm install -g typescript@5.6.3
   mise,node,true,20.11.0,22.0.0,major,true,mise upgrade node,mise use -g node@20.11.0
@@ -43,7 +43,9 @@ Default output is [TOON](https://toonformat.dev/), structured for agents: one `t
 - `summary` - pre-computed counts the next step usually needs: total `tools`, known `gaps`, the tier counts that are nonzero, and the `in_use` and `skew` counts when they are nonzero. Only known gaps count; an unknown latest is never a gap, and a zero fact stays absent.
 - `in_use[]` - why a tool is in use, read from `herdr agent list`, `no-mistakes runs`, and the process table (`/proc/<pid>/exe`), never from Firstmate's files. `apply` refuses an in-use tool with this reason.
 - `skew[]` - "update not in effect": every copy of the command on `PATH` was asked its version, and a newer copy sits behind the resolved one.
+- `overlap[]` - one command name reachable from two different executables: a snap launcher on `PATH` (under snapd's snap bin dir) beside another copy with a different real target, regardless of version ordering; only the measured paths are named, never the other copy's owner.
 - `announce[]` - the tool's own update announcement, matched by the configured pattern; upkeep-axi reports the claim verbatim and adds nothing.
+- `snap_state[]` - the snap vendor facts behind a row: tracked channel, installed and offered revisions, and the hold timestamps (`held_until` from `hold`/`gating-hold`, `refresh_inhibited_until` from `refresh-inhibit`'s `proceed-time`); a hold is never an error or a suppressed gap.
 - `sync[]` - the Firstmate fork's sync facts: the class (`current`/`fast-forward`/`clean-rebase`/`conflicts`), the commits each side is ahead, the fork's GitHub slug, and - for conflicts - the conflicting files.
 - `errors[]` - a manager probe that failed, reported verbatim.
 

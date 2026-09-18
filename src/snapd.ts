@@ -8,7 +8,7 @@ import type { SurfaceConfig } from "./types.js";
  * snapd serves JSON over a Unix socket, so the snap surface reads the
  * daemon's REST API directly instead of parsing `snap` command tables or
  * shelling out to `curl`. This module owns the transport and the snapd
- * envelope; the surface module (a later slice) owns interpreting results
+ * envelope; the surface module (`src/surfaces/snap.ts`) owns interpreting results
  * into rows. Reads only: the request method is GET by construction and no
  * mutating path exists here.
  *
