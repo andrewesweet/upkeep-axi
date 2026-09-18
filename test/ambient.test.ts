@@ -62,7 +62,7 @@ function runHookEntrypoint(env: NodeJS.ProcessEnv): Promise<CliResult> {
 }
 
 describe("ambient (the session-start dashboard)", () => {
-  it("shows only gaps and in-use rows, most severe first, capped, with counts", async () => {
+  it("shows only known-gap rows, most severe first, capped, with counts", async () => {
     const fake = stdEnv();
     await takeInventory(fake);
     const result = await runCli(["ambient"], fake.env());
@@ -95,7 +95,7 @@ describe("ambient (the session-start dashboard)", () => {
     expect(out).not.toContain("npm install -g");
   });
 
-  it("ranks in-use conflicts above every tier", async () => {
+  it("ranks an in-use gap row above every tier", async () => {
     const fake = stdEnv();
     fake.writeFake(
       "herdr",
@@ -120,6 +120,70 @@ exit 1`,
     );
     const rows = out.split("\n").filter((line) => line.startsWith("  "));
     expect(rows[0]).toBe("  npm,typescript,5.6.3,5.7.2,minor,true");
+  });
+
+  it("drops an in-use row that has no gap, keeps every gap row, capped", async () => {
+    const fake = stdEnv();
+    // esbuild is current (0.20.0 -> 0.20.0): give it a bin and an active
+    // herdr agent so it is in use without a gap. typescript keeps its
+    // minor gap and its tsc driver: in use and gapped, so it stays and
+    // leads. Shell builtins only, as every fake here.
+    fake.writeFake(
+      "npm",
+      `if [ "$1" = "ls" ]; then
+  ts=5.6.3
+  if test -f "$HOME/.npm-state/typescript"; then read ts < "$HOME/.npm-state/typescript"; fi
+  echo '{"dependencies":{"left-pad":{"version":"1.3.0"},"esbuild":{"version":"0.20.0","bin":{"esbuild":"bin/esbuild"}},"typescript":{"version":"'"$ts"'","bin":{"tsc":"bin/tsc"}},"unparsable":{"version":"dev"},"gone":{"version":"2.0.0"}}}'
+  exit 0
+fi
+if [ "$1" = "view" ]; then
+  case "$2" in
+    left-pad) echo "1.3.0" ;;
+    esbuild) echo "0.20.0" ;;
+    typescript) echo "5.7.2" ;;
+    unparsable) echo "2026.09.0" ;;
+    gone) echo "" ;;
+    @openai/codex) echo "0.155.0" ;;
+  esac
+  exit 0
+fi
+exit 1`,
+    );
+    fake.writeFake(
+      "herdr",
+      `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+if [ "$1" = "agent" ] && [ "$2" = "list" ]; then
+  echo '{"result":{"agents":[{"agent":"tsc","agent_status":"working"},{"agent":"esbuild","agent_status":"working"}]}}'
+  exit 0
+fi
+exit 1`,
+    );
+    await takeInventory(fake);
+    const result = await runCli(["ambient"], fake.env());
+    expect(result.code).toBe(0);
+    const out = result.stdout;
+    // esbuild stays in the ambient: count - the tally is where an agent
+    // reads in use, so both driven tools are counted.
+    expect(unquoted(out)).toContain(
+      "ambient: 10 gaps (3 major, 7 minor), 2 in use",
+    );
+    const rows = out.split("\n").filter((line) => line.startsWith("  "));
+    // The in-use gap row leads; the not-in-use gap rows follow by tier,
+    // registry order inside a tier (typescript is minor, still first).
+    expect(rows[0]).toBe("  npm,typescript,5.6.3,5.7.2,minor,true");
+    expect(rows[1]).toBe("  npm,unparsable,dev,2026.09.0,major,false");
+    expect(rows[2]).toBe("  mise,node,20.11.0,22.0.0,major,false");
+    expect(rows[3]).toBe("  apt,ripgrep,14.1.1,15.0.0,major,false");
+    // The ungapped in-use row is dropped from tools[] entirely - not
+    // rendered, and not counted by the cap's hidden total.
+    expect(out).not.toContain("npm,esbuild");
+    expect(out).toContain(
+      `tools[${AMBIENT_MAX_ROWS}]{surface,tool,version,latest,tier,in_use}:`,
+    );
+    expect(out).toContain(`Showing ${AMBIENT_MAX_ROWS} of 10 rows`);
   });
 
   it("says nothing definitively when there are no gaps and nothing in use", async () => {
