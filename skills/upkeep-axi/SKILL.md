@@ -26,7 +26,7 @@ checkout on this host (it is not published to npm):
 
 - `upkeep-axi` - the full inventory (TOON; add `--json` for the model)
 - `upkeep-axi status --help` - status flags, including drift filters
-- `upkeep-axi ambient` - the bounded dashboard (gaps and in-use conflicts only)
+- `upkeep-axi ambient` - the bounded dashboard (known gaps only, in-use gaps first)
 - `upkeep-axi setup hooks` - install the session-start hook that injects that
   dashboard at every agent session start (the hook is the primary, ambient
   path; this skill is the secondary, on-demand one - either alone suffices)

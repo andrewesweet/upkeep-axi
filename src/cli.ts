@@ -126,7 +126,7 @@ examples[5]:
 `;
 
 export const SETUP_HELP = `usage: upkeep-axi setup hooks [--status] [flags]
-Install or repair the agent SessionStart hooks (Claude Code, Codex, OpenCode) that show the upkeep-axi dashboard at every session start. --status reports what is installed without writing. The hook runs the bounded ambient dashboard (known gaps and in-use conflicts only), never the full inventory.
+Install or repair the agent SessionStart hooks (Claude Code, Codex, OpenCode) that show the upkeep-axi dashboard at every session start. --status reports what is installed without writing. The hook runs the bounded ambient dashboard (known gaps only, in-use gaps first), never the full inventory.
 flags[2]:
   --status, --json
 examples[3]:
@@ -136,7 +136,7 @@ examples[3]:
 `;
 
 export const AMBIENT_HELP = `usage: upkeep-axi ambient [flags]
-The session-start dashboard: known gaps and in-use conflicts only, most severe first, capped at a few lines with the counts pre-computed. This is exactly what the setup hooks inject; run it to preview them. It never probes anything: it reads the inventory the last unfiltered status run saved under $XDG_STATE_HOME/upkeep-axi/status.json, brought up to date with applies journaled since, and says when that inventory is older than a day. Probe failures are counted here and reported verbatim by status.
+The session-start dashboard: known gaps only, in-use gaps first then most severe, capped at a few lines with the counts pre-computed. This is exactly what the setup hooks inject; run it to preview them. It never probes anything: it reads the inventory the last unfiltered status run saved under $XDG_STATE_HOME/upkeep-axi/status.json, brought up to date with applies journaled since, and says when that inventory is older than a day. Probe failures are counted here and reported verbatim by status.
 flags[1]:
   --json
 examples[3]:
