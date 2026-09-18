@@ -1072,6 +1072,28 @@ describe("status --since and --changed-only", () => {
     expect(model.records.map((record) => record.id)).toEqual([2]);
   });
 
+  it("unfiltered status states the claude fact once and references it from every other claude row", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(["status", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      in_use?: Array<{ surface: string; tool: string; detail: string }>;
+    };
+    const claude = (model.in_use ?? []).filter(
+      (row) => row.surface === "claude",
+    );
+    expect(claude[0]).toEqual({
+      surface: "claude",
+      tool: "claude",
+      detail: "herdr agent claude is active",
+    });
+    expect(claude.length).toBeGreaterThan(1);
+    for (const row of claude.slice(1)) {
+      expect(row.detail).toBe("same as claude,claude");
+    }
+  });
+
   it("--changed-only keeps a drifted plugin's full in-use detail when the manager row is filtered out", async () => {
     const fake = stdEnv();
     // The journal's last word on caveman differs from the installed
