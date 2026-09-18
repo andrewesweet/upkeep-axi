@@ -43,9 +43,6 @@ export type SnapdRead =
   | { kind: "error"; reason: string; statusCode?: number }
   | { kind: "ok"; result: unknown };
 
-/** Cap on one response body; snapd inventories stay far below this. */
-const RESPONSE_LIMIT_BYTES = 64 * 1024 * 1024;
-
 /** Shape of the snapd JSON envelope: {type, status-code, status, result}. */
 interface SnapdEnvelope {
   type?: unknown;
@@ -111,18 +108,8 @@ function snapdGet(
       { socketPath, path, method: "GET", agent: false },
       (response) => {
         const parts: Uint8Array<ArrayBuffer>[] = [];
-        let size = 0;
         response.on("data", (chunk: Buffer) => {
           if (settled) return;
-          size += chunk.byteLength;
-          if (size > RESPONSE_LIMIT_BYTES) {
-            request.destroy();
-            finish({
-              kind: "error",
-              reason: `GET ${path} response exceeded ${RESPONSE_LIMIT_BYTES} bytes`,
-            });
-            return;
-          }
           // Copied, not referenced: the chunk's buffer keeps Node's own
           // ArrayBufferLike typing, and the copy keeps the Blob decode
           // simple while the bytes are only kilobytes.
