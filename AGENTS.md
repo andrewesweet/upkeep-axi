@@ -2,6 +2,7 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, architecture, and sharp-edge notes that should travel with the code.
 
+- The no-mistakes review guidance for changes to `src/`, `bin/`, or `skills/` is owned by [.no-mistakes.yaml](.no-mistakes.yaml).
 - [VISION.md](VISION.md) is the project's acceptance policy: accuracy first, report and let the caller decide, delegate never reimplement, absent data stays absent, never root, tests never run a real updater. Check a proposed change against it before building.
 - The approved spec is GitHub issue https://github.com/andrewesweet/upkeep-axi/issues/1 (label ready-for-agent); it owns the two-verb contract (`status` read-only, `apply` plan-by-default with `--execute`), the surface list, and the out-of-scope list. Every version-one surface, including the Firstmate fork sync, is built.
 - `upkeep-axi` runs on this WSL2 Ubuntu host only in version one, and never as root (`assertNotRoot` in `src/exec.ts` gates every command).
