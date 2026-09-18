@@ -58,16 +58,23 @@ export class InUseProber {
   constructor(private readonly env: NodeJS.ProcessEnv) {}
 
   /**
-   * Facts for the executables one apply would replace. The process table
+   * Facts for the files one apply would replace: the executables named, and
+   * the executable-root prefixes declared (a bundle whose processes run
+   * under a directory, e.g. /snap/<name>/<revision>/...). The process table
    * matches only processes whose /proc/<pid>/exe resolves to a copy of the
-   * watched name on this run's PATH - the same copies the apply would swap.
-   * The sources are probed sequentially and the table is read last, so our
-   * own probe processes are gone by the time it is scanned. Each probe is
-   * cached as its promise, so concurrent callers share one in-flight probe
-   * and none reads a placeholder before the probe answers.
+   * watched name on this run's PATH - the same copies the apply would swap -
+   * or whose real executable path lies under a declared prefix. One process
+   * matched both ways is one fact. The sources are probed sequentially and
+   * the table is read last, so our own probe processes are gone by the time
+   * it is scanned. Each probe is cached as its promise, so concurrent
+   * callers share one in-flight probe and none reads a placeholder before
+   * the probe answers.
    */
-  async factsFor(executables: string[]): Promise<InUseFact[]> {
-    if (executables.length === 0) return [];
+  async factsFor(
+    executables: string[],
+    executableRoots: string[] = [],
+  ): Promise<InUseFact[]> {
+    if (executables.length === 0 && executableRoots.length === 0) return [];
     const wanted = new Set(executables);
     const herdr = await (this.herdrAgents ??= this.probeHerdrAgents());
     const runs = await (this.noMistakesRuns ??= this.probeNoMistakesRuns());
@@ -90,14 +97,31 @@ export class InUseProber {
         });
       }
     }
+    const seen = new Set<number>();
     for (const name of executables) {
       for (const candidate of pathCandidates(name, this.env)) {
         for (const process of processes.get(realpath(candidate)) ?? []) {
+          if (seen.has(process.pid)) continue;
+          seen.add(process.pid);
           facts.push({
             source: "process",
             detail: `process ${process.pid} runs ${process.exe}`,
           });
         }
+      }
+    }
+    const roots = executableRoots
+      .map(executableRootPrefix)
+      .filter((root) => root !== undefined);
+    for (const list of processes.values()) {
+      for (const process of list) {
+        if (seen.has(process.pid)) continue;
+        if (!roots.some((root) => process.exe.startsWith(root))) continue;
+        seen.add(process.pid);
+        facts.push({
+          source: "process",
+          detail: `process ${process.pid} runs ${process.exe}`,
+        });
       }
     }
     return facts;
@@ -184,6 +208,19 @@ export class InUseProber {
 }
 
 /**
+ * A declared executable root as a directory prefix. /proc/<pid>/exe paths
+ * end in the binary's name, so the root must end in the separator to mean
+ * "under this directory" and not "a sibling directory named alike"
+ * (/snap/fire/ must not match /snap/firefox/...). Empty roots are dropped:
+ * an empty prefix would match every process on the host.
+ */
+function executableRootPrefix(root: string): string | undefined {
+  const trimmed = root.trim();
+  if (!trimmed) return undefined;
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+}
+
+/**
  * /proc/<pid>/exe is the resolved binary, so a PATH entry that is a symlink
  * or shim (fnm multishell links, installer stubs) must be resolved to match.
  */
@@ -243,7 +280,10 @@ export async function markInUse(
 ): Promise<void> {
   await mapLimit(rows, 8, async (row) => {
     if (!row.installed || !row.applyCommand) return;
-    const facts = await prober.factsFor(replacedExecutablesFor(surface, row));
+    const facts = await prober.factsFor(
+      replacedExecutablesFor(surface, row),
+      row.executableRoots ?? [],
+    );
     row.inUse = facts.length > 0;
     if (facts.length > 0) {
       row.inUseDetail = facts.map((fact) => fact.detail).join("; ");

@@ -164,6 +164,15 @@ export interface ToolStatus {
    */
   executables?: string[];
   /**
+   * Directory prefixes under which this row's running processes live (a
+   * snap app runs under /snap/<name>/<revision>/..., not at the launcher
+   * symlink on PATH, so exact executable matching cannot see it). The
+   * process matcher treats a process whose /proc/<pid>/exe lies under one
+   * of these prefixes as in use, alongside the exact PATH-executable
+   * match. Absent means the row adds no prefix to the match.
+   */
+  executableRoots?: string[];
+  /**
    * Why apply must skip this row, when the surface knows a reason no
    * delegate exists (firstmate: the trial rebase conflicted, with the
    * files). Not rendered on the row; the plan's skipped block reports it.
