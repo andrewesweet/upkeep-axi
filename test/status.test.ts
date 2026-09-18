@@ -1521,7 +1521,7 @@ describe("config resolution", () => {
     const result = await runCli(["status"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain(
-      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes, firstmate)",
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes, firstmate, snap)",
     );
   });
 

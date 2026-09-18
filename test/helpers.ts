@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,9 +42,10 @@ export interface FakeEnv {
   /** Write a plain file under the fake home (state the vendors keep there). */
   writeFakeFile(relPath: string, content: string): void;
   /**
-   * Write the default config. The apt reboot-required flag is always pinned
-   * to an absent path under root unless the config overrides it, so the
-   * spawned CLI never reads the host's real /var/run/reboot-required.
+   * Write the default config. The apt reboot-required flag and the snapd
+   * socket are always pinned to absent paths under root unless the config
+   * overrides them, so the spawned CLI never reads the host's real
+   * /var/run/reboot-required or /run/snapd.socket.
    */
   writeConfig(config: unknown): string;
   /** Base env for runCli; spread extras over it. */
@@ -60,11 +68,12 @@ export function createEnv(): FakeEnv {
     chmodSync(path, 0o755);
   };
   const apt = { rebootRequiredPath: join(root, "no-reboot-required") };
+  const snap = { socketPath: join(root, "no-snapd.socket") };
   const writeConfig = (config: unknown) => {
     const base = config as { surfaces?: Record<string, unknown> };
     writeFakeConfigAt(configPath, {
       ...base,
-      surfaces: { apt, ...base.surfaces },
+      surfaces: { apt, snap, ...base.surfaces },
     });
     return configPath;
   };
@@ -96,6 +105,79 @@ export function createEnv(): FakeEnv {
 function writeFakeConfigAt(path: string, config: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2));
+}
+
+/** One canned answer the snapd fixture serves to the next request. */
+export type SnapdFixtureResponse =
+  /** A valid snapd sync envelope carrying `result` (HTTP 200). */
+  | { ok: unknown }
+  /** Raw HTTP control: exact status and body bytes. */
+  | { httpStatus: number; body: string }
+  /** Accept the request and never answer; the client must hit its budget. */
+  | { hang: true };
+
+export interface SnapdFixture {
+  socketPath: string;
+  /** Every request received, spelled "METHOD path". */
+  requests: string[];
+  /** Queue canned answers; each request consumes the next in order. */
+  queue(...responses: SnapdFixtureResponse[]): void;
+  /** Stop the server, drop its connections, and remove the socket file. */
+  close(): Promise<void>;
+}
+
+/**
+ * A temporary snapd: an HTTP server on a Unix-domain socket under the
+ * test root. It stands in for the host's real /run/snapd.socket so client
+ * tests never reach it; pair it with a config override of
+ * `surfaces.snap.socketPath` (the default fake environment pins an absent
+ * path instead). A request with no queued answer (or a `hang` answer) never
+ * gets a response, which is how the client's bounded wait is exercised.
+ */
+export function startSnapdFixture(
+  root: string,
+  name = "snapd-fixture.sock",
+): Promise<SnapdFixture> {
+  const socketPath = join(root, name);
+  const requests: string[] = [];
+  const responses: SnapdFixtureResponse[] = [];
+  const server: Server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    const canned = responses.shift();
+    if (canned === undefined || "hang" in canned) return;
+    if ("ok" in canned) {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          type: "sync",
+          "status-code": 200,
+          status: "OK",
+          result: canned.ok,
+        }),
+      );
+      return;
+    }
+    response.writeHead(canned.httpStatus, {
+      "Content-Type": "application/json",
+    });
+    response.end(canned.body);
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      resolve({
+        socketPath,
+        requests,
+        queue: (...queued) => responses.push(...queued),
+        close: () =>
+          new Promise<void>((resolveClose) => {
+            server.close(() => resolveClose());
+            server.closeAllConnections();
+            rmSync(socketPath, { force: true });
+          }),
+      });
+    });
+  });
 }
 
 export function writeRawConfig(path: string, content: string): void {
