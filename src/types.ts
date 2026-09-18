@@ -195,6 +195,14 @@ export interface Surface {
   readonly description: string;
   /** Name of the surface's manager executable (the row reported when absent). */
   readonly managerTool: string;
+  /**
+   * Report-only surface metadata: the rows carry the exact command the
+   * caller runs by hand, but no delegate ever runs here. Naming the surface
+   * for apply is a usage error that quotes `manualCommand` verbatim, `--all`
+   * never plans it (the module's `apply` returns undefined), and scoped
+   * status hints quote the rows' own commands instead of apply.
+   */
+  readonly reportOnly?: { manualCommand: string };
   detect(ctx: SurfaceContext): Promise<boolean>;
   status(ctx: SurfaceContext): Promise<ToolStatus[]>;
   apply(ctx: SurfaceContext, row: ToolStatus): ApplyDelegate | undefined;

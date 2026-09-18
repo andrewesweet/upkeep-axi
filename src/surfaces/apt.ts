@@ -12,6 +12,8 @@ import { enrichWithConfig, managerErrorRow, managerVersion } from "./shared.js";
 const SURFACE_ID = "apt";
 const LIST_TIMEOUT_MS = 30_000;
 const DEFAULT_REBOOT_REQUIRED_PATH = "/var/run/reboot-required";
+/** The exact manual command every apt row publishes; apt never delegates. */
+const MANUAL_COMMAND = "sudo apt-get update && sudo apt-get upgrade";
 
 function managerPath(ctx: SurfaceContext): string | undefined {
   return pathCandidates("apt", ctx.env)[0];
@@ -86,6 +88,7 @@ export const aptSurface: Surface = {
   id: SURFACE_ID,
   description: "apt packages (report-only)",
   managerTool: "apt",
+  reportOnly: { manualCommand: MANUAL_COMMAND },
 
   async detect(ctx) {
     return managerPath(ctx) !== undefined;
@@ -116,7 +119,7 @@ export const aptSurface: Surface = {
           version: pkg.from,
           latest: pkg.latest,
           tier: debianTier(pkg.from, pkg.latest),
-          applyCommand: "sudo apt-get update && sudo apt-get upgrade",
+          applyCommand: MANUAL_COMMAND,
           pinCommand: pkg.from
             ? `sudo apt-get install ${pkg.name}=${pkg.from}`
             : undefined,

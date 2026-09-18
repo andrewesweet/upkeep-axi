@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { encode } from "@toon-format/toon";
 import type { ApplyReport } from "./apply.js";
 import type { JournalRecord } from "./journal.js";
+import { isReportOnlySurface } from "./surfaces/index.js";
 import type { ToolStatus } from "./types.js";
 
 export const SCHEMA_VERSION = 3;
@@ -263,7 +264,7 @@ export interface StatusRenderOptions extends StatusModelOptions, ToonOptions {
 /**
  * Help derived from the invocation and the rows: the scoping hint only
  * when unscoped, the apply hint only when known gaps exist that apply can
- * plan. apt is report-only, so its gaps hint the row's own command instead.
+ * plan. A report-only surface's gaps hint the row's own command instead.
  */
 function statusHelpHints(
   rows: ToolStatus[],
@@ -271,12 +272,14 @@ function statusHelpHints(
 ): string[] {
   const hints: string[] = [];
   const gaps = rows.filter((row) => row.tier && row.tier !== "none");
-  if (options.singleSurface === "apt") {
+  if (options.singleSurface && isReportOnlySurface(options.singleSurface)) {
     const commands = new Set(
       gaps.flatMap((row) => (row.applyCommand ? [row.applyCommand] : [])),
     );
     for (const command of commands) {
-      hints.push(`Run \`${command}\` yourself: apt is report-only`);
+      hints.push(
+        `Run \`${command}\` yourself: ${options.singleSurface} is report-only`,
+      );
     }
   } else if (options.singleSurface) {
     if (gaps.length > 0) {
@@ -284,7 +287,7 @@ function statusHelpHints(
         `Run \`upkeep-axi apply ${options.singleSurface}\` to plan its gaps`,
       );
     }
-  } else if (gaps.some((row) => row.surface !== "apt")) {
+  } else if (gaps.some((row) => !isReportOnlySurface(row.surface))) {
     hints.push(
       "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
     );
