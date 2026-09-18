@@ -9,10 +9,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { Surface } from "../src/types.js";
 import {
   createEnv,
   installStandardFakes,
   runCli,
+  runMain,
+  withSurface,
   type FakeEnv,
 } from "./helpers.js";
 
@@ -20,6 +23,22 @@ function stdEnv(): FakeEnv {
   const env = createEnv();
   installStandardFakes(env);
   return env;
+}
+
+/** A herdr fake reporting one working agent, so `agent` reads in use. */
+function herdrAgentActive(fake: FakeEnv, agent: string): void {
+  fake.writeFake(
+    "herdr",
+    `if [ "$1" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+if [ "$1" = "agent" ] && [ "$2" = "list" ]; then
+  echo '{"result":{"agents":[{"agent":"${agent}","agent_status":"working"}]}}'
+  exit 0
+fi
+exit 1`,
+  );
 }
 
 function journalPath(env: FakeEnv): string {
@@ -569,6 +588,173 @@ exit 1`,
   });
 });
 
+describe("apply --all: candidacy before the in-use refusal", () => {
+  it("drops tierless in-use rows from skipped[]: they were never candidates", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(
+      ["apply", "--all", "--tier", "minor", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: Array<{ surface: string; tool: string }>;
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    // The tier decides candidacy first: the minor gaps still plan.
+    expect(model.plan.map((row) => `${row.surface}/${row.tool}`)).toContain(
+      "npm/typescript",
+    );
+    // The claude surface has no update check, so no row has a tier: in use
+    // or free, none was ever a candidate under --all, and none is skipped.
+    expect(
+      (model.skipped ?? []).filter((row) => row.surface === "claude"),
+    ).toEqual([]);
+  });
+
+  it("still refuses an in-use row the tier would have planned", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "tsc");
+    const result = await runCli(
+      ["apply", "--all", "--tier", "minor", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: Array<{ surface: string; tool: string }>;
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    // typescript has a minor gap: it was a candidate, so the in-use
+    // refusal still names it.
+    expect(model.plan.some((row) => row.tool === "typescript")).toBe(false);
+    expect(model.skipped).toContainEqual({
+      surface: "npm",
+      tool: "typescript",
+      reason: "in use: herdr agent tsc is active",
+    });
+  });
+
+  it("--all keeps a candidate row's full in-use detail when its manager row was never a candidate", async () => {
+    // A surface in the claude shape whose manager has no update check but
+    // whose plugin row carries a known gap: under --all the manager row is
+    // never skipped, so the plugin row has no referent and states the fact.
+    const id = "fake-shared";
+    const surface: Surface = {
+      id,
+      description: "fake surface sharing one executable",
+      managerTool: id,
+      async detect() {
+        return true;
+      },
+      async status() {
+        return [
+          {
+            surface: id,
+            tool: id,
+            installed: true,
+            version: "1.0.0",
+            applyCommand: `${id} update`,
+          },
+          {
+            surface: id,
+            tool: "widget",
+            installed: true,
+            version: "1.0.0",
+            latest: "1.1.0",
+            tier: "minor",
+            applyCommand: `${id} plugin update widget`,
+          },
+        ];
+      },
+      apply(_ctx, row) {
+        return { steps: [{ file: id, args: ["update", row.tool] }] };
+      },
+      replacedExecutables: () => [id],
+    };
+    await withSurface(surface, async () => {
+      const fake = stdEnv();
+      herdrAgentActive(fake, id);
+      const all = await runMain(
+        ["apply", "--all", "--tier", "minor", "--json"],
+        fake,
+      );
+      expect(all.code).toBe(0);
+      const model = JSON.parse(all.output) as {
+        skipped?: Array<{ surface: string; tool: string; reason: string }>;
+      };
+      expect((model.skipped ?? []).filter((row) => row.surface === id)).toEqual(
+        [
+          {
+            surface: id,
+            tool: "widget",
+            reason: `in use: herdr agent ${id} is active`,
+          },
+        ],
+      );
+      // Naming the surface skips both rows, and the reference resolves.
+      const named = await runMain(["apply", id, "--json"], fake);
+      expect(named.code).toBe(0);
+      expect(
+        (
+          JSON.parse(named.output) as {
+            skipped?: Array<{ surface: string; tool: string; reason: string }>;
+          }
+        ).skipped,
+      ).toEqual([
+        {
+          surface: id,
+          tool: id,
+          reason: `in use: herdr agent ${id} is active`,
+        },
+        { surface: id, tool: "widget", reason: `in use: same as ${id},${id}` },
+      ]);
+    });
+  });
+
+  it("a named surface keeps every in-use refusal; rows measuring the manager's set reference it", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(["apply", "claude", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      plan: unknown[];
+      skipped?: Array<{ surface: string; tool: string; reason: string }>;
+    };
+    expect(model.plan).toEqual([]);
+    // The caller pointed at the surface, so in-use refusal outranks the
+    // tier. The manager row carries the facts; every other claude row
+    // replaces the same binary and references it, so the one fact is
+    // stated once.
+    expect(model.skipped).toEqual([
+      {
+        surface: "claude",
+        tool: "claude",
+        reason: "in use: herdr agent claude is active",
+      },
+      {
+        surface: "claude",
+        tool: "gopls-lsp@claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "context7@claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "claude-plugins-official",
+        reason: "in use: same as claude,claude",
+      },
+      {
+        surface: "claude",
+        tool: "caveman",
+        reason: "in use: same as claude,claude",
+      },
+    ]);
+  });
+});
+
 describe("AXI output discipline", () => {
   /** A mise fake whose upgrade delegate refuses after 60 chatty lines. */
   function chattyEnv(): FakeEnv {
@@ -942,6 +1128,58 @@ describe("status --since and --changed-only", () => {
       records: Array<{ id: number }>;
     };
     expect(model.records.map((record) => record.id)).toEqual([2]);
+  });
+
+  it("unfiltered status states the claude fact once and references it from every other claude row", async () => {
+    const fake = stdEnv();
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(["status", "--json"], fake.env());
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      in_use?: Array<{ surface: string; tool: string; detail: string }>;
+    };
+    const claude = (model.in_use ?? []).filter(
+      (row) => row.surface === "claude",
+    );
+    expect(claude[0]).toEqual({
+      surface: "claude",
+      tool: "claude",
+      detail: "herdr agent claude is active",
+    });
+    expect(claude.length).toBeGreaterThan(1);
+    for (const row of claude.slice(1)) {
+      expect(row.detail).toBe("same as claude,claude");
+    }
+  });
+
+  it("--changed-only keeps a drifted plugin's full in-use detail when the manager row is filtered out", async () => {
+    const fake = stdEnv();
+    // The journal's last word on caveman differs from the installed
+    // version, so only caveman drifts; claude itself is not reported.
+    fake.writeFakeFile(
+      "xdg-state/upkeep-axi/journal.jsonl",
+      '{"surface":"claude","tool":"caveman","before":"0.0.1","after":"9.9.9","started_at":"2026-01-01T00:00:00Z"}\n',
+    );
+    herdrAgentActive(fake, "claude");
+    const result = await runCli(
+      ["status", "--changed-only", "--json"],
+      fake.env(),
+    );
+    expect(result.code).toBe(0);
+    const model = JSON.parse(result.stdout) as {
+      tools: Array<{ surface: string; tool: string }>;
+      in_use?: Array<{ surface: string; tool: string; detail: string }>;
+    };
+    expect(model.tools.map((row) => [row.surface, row.tool])).toEqual([
+      ["claude", "caveman"],
+    ]);
+    expect(model.in_use).toEqual([
+      {
+        surface: "claude",
+        tool: "caveman",
+        detail: "herdr agent claude is active",
+      },
+    ]);
   });
 
   it("--changed-only on an empty journal reports everything", async () => {

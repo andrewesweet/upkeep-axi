@@ -10,6 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { main } from "../src/cli.js";
+import { SURFACE_REGISTRY } from "../src/surfaces/index.js";
+import type { Surface } from "../src/types.js";
 
 export const CLI_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -531,4 +534,46 @@ if [ "$1" = "update" ]; then
 fi
 exit 1`,
   );
+}
+
+/**
+ * Run the real command graph in-process with the environment pinned to the
+ * fixture - the same hermetic seam the spawned tests use (the process PATH
+ * is exactly the fake bin directory, XDG roots live under the fixture root).
+ * No probe can reach a real package manager, and nothing mutates the host.
+ */
+export async function runMain(
+  args: string[],
+  env: FakeEnv,
+): Promise<{ code: number; output: string }> {
+  const savedEnv = process.env;
+  const savedExitCode = process.exitCode;
+  const chunks: string[] = [];
+  let code: number;
+  process.env = env.env();
+  try {
+    await main({
+      argv: args,
+      stdout: { write: (chunk: string) => chunks.push(chunk) },
+    });
+    code = process.exitCode ?? 0;
+  } finally {
+    process.env = savedEnv;
+    process.exitCode = savedExitCode;
+  }
+  return { code, output: chunks.join("") };
+}
+
+/** Run one assertion with a surface registered through the real registry seam, then remove it. */
+export async function withSurface(
+  surface: Surface,
+  run: () => Promise<void>,
+): Promise<void> {
+  SURFACE_REGISTRY.push(surface);
+  try {
+    await run();
+  } finally {
+    const index = SURFACE_REGISTRY.indexOf(surface);
+    if (index !== -1) SURFACE_REGISTRY.splice(index, 1);
+  }
 }

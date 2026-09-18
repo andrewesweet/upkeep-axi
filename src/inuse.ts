@@ -271,21 +271,59 @@ export function replacedExecutablesFor(
  * Rows without an apply keep in_use absent - there is nothing to protect.
  * Failures in a source contribute nothing, and a row whose sources measured
  * clear reads in_use=false.
+ *
+ * The measurement is memoised per executables/roots key: rows of one surface
+ * whose applies would replace the same files (every claude plugin names the
+ * claude binary) share one fact set. Every row keeps its full detail here;
+ * `collapseInUseDetail` shortens repeats over the rows an output emits.
  */
 export async function markInUse(
   surface: Pick<Surface, "replacedExecutables">,
   rows: ToolStatus[],
   prober: InUseProber,
 ): Promise<void> {
+  const pendingByKey = new Map<string, Promise<InUseFact[]>>();
   await mapLimit(rows, 8, async (row) => {
     if (!row.installed || !row.applyCommand) return;
-    const facts = await prober.factsFor(
-      replacedExecutablesFor(surface, row),
-      row.executableRoots ?? [],
-    );
+    const executables = replacedExecutablesFor(surface, row);
+    const roots = row.executableRoots ?? [];
+    const key = JSON.stringify([executables, roots]);
+    let pending = pendingByKey.get(key);
+    if (!pending) {
+      // Set before the first await, so concurrent rows with the same key
+      // share one measurement instead of racing to duplicate it.
+      pending = prober.factsFor(executables, roots);
+      pendingByKey.set(key, pending);
+    }
+    const facts = await pending;
     row.inUse = facts.length > 0;
     if (facts.length > 0) {
       row.inUseDetail = facts.map((fact) => fact.detail).join("; ");
     }
   });
+}
+
+/**
+ * Collapse repeated in-use facts over the rows an output emits: a row whose
+ * detail equals its surface's manager row's carries the short reference
+ * `same as <surface>,<managerTool>` instead. The referent must be among
+ * `rows`, so this runs after any filtering (status --since/--changed-only,
+ * apply's tier candidacy); a row whose manager row is absent keeps its
+ * full detail, and a manager row measuring clear is never referenced.
+ */
+export function collapseInUseDetail(
+  rows: ToolStatus[],
+  surfaces: ReadonlyArray<Pick<Surface, "id" | "managerTool">>,
+): void {
+  for (const surface of surfaces) {
+    const manager = rows.find(
+      (row) => row.surface === surface.id && row.tool === surface.managerTool,
+    );
+    if (!manager?.inUseDetail) continue;
+    for (const row of rows) {
+      if (row === manager || row.surface !== surface.id) continue;
+      if (row.inUseDetail !== manager.inUseDetail) continue;
+      row.inUseDetail = `same as ${surface.id},${surface.managerTool}`;
+    }
+  }
 }

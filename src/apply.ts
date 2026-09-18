@@ -1,4 +1,5 @@
 import { DEFAULT_APPLY_TIMEOUT_MS, runDelegate } from "./exec.js";
+import { collapseInUseDetail } from "./inuse.js";
 import {
   appendJournal,
   defaultJournalPath,
@@ -12,6 +13,7 @@ import type {
   SemverTier,
   Surface,
   SurfaceContext,
+  ToolStatus,
   UpkeepConfig,
 } from "./types.js";
 
@@ -129,7 +131,9 @@ function ctxFor(
  * takes its rows with any known gap. Naming tools takes exactly those rows
  * whatever their tier: the captain pointed at them. Rows that are not
  * installed, have no delegate, or are measured in use are refused with the
- * reason instead of planned.
+ * reason instead of planned; under --all the tier filter decides candidacy
+ * first, so an in-use row with no known gap at or below the tier is never
+ * reported, while named selections refuse in use whatever the tier.
  */
 export async function buildPlan(
   config: UpkeepConfig,
@@ -150,6 +154,7 @@ export async function buildPlan(
 
   const plan: PlanRow[] = [];
   const skipped: SkippedRow[] = [];
+  const inUseSkipped: Array<[SkippedRow, ToolStatus]> = [];
   const planned = new Set<string>();
   const knownRow = new Set<string>();
 
@@ -189,24 +194,28 @@ export async function buildPlan(
       }
       continue;
     }
-    // In use is a safety refusal, not a tier fact: it comes before the
-    // tier filter so a tool with no latest still refuses with the reason.
-    if (row.inUse) {
-      skipped.push({
-        surface: row.surface,
-        tool: row.tool,
-        reason: `in use: ${row.inUseDetail ?? "a source names it"}`,
-      });
-      continue;
-    }
-    // Tier filter: a known gap at or below the selected tier. Explicitly
+    // Tier candidacy: a known gap at or below the selected tier. Explicitly
     // named tools were already selected by the captain pointing at them,
     // and they are the only rows a tool-named selection plans.
-    if (!explicit) {
-      if (namedTools) continue;
-      if (!row.tier || row.tier === "none") continue;
-      if (TIER_RANK[row.tier as ApplyTier] > maxRank) continue;
+    const tierCandidate =
+      explicit ||
+      (!namedTools &&
+        row.tier !== undefined &&
+        row.tier !== "none" &&
+        TIER_RANK[row.tier as ApplyTier] <= maxRank);
+    // In use is a safety refusal, not a tier fact: for a named selection it
+    // outranks the tier filter - the caller pointed at the surface or tool,
+    // so a row with no latest still refuses with the reason. Under --all
+    // the tier filter decides candidacy first: a row with no known gap at
+    // or below the tier would not have been planned even if free, so it is
+    // never reported as skipped.
+    if (row.inUse && (!selection.all || tierCandidate)) {
+      const entry = { surface: row.surface, tool: row.tool, reason: "" };
+      skipped.push(entry);
+      inUseSkipped.push([entry, row]);
+      continue;
     }
+    if (!tierCandidate) continue;
     const key = `${row.surface}\u0000${row.tool}`;
     if (planned.has(key)) continue;
     planned.add(key);
@@ -221,6 +230,16 @@ export async function buildPlan(
       delegate,
       timeoutMs: applyTimeoutFor(config, row.surface),
     });
+  }
+
+  // The same-as reference is resolved over the skipped rows only, so the
+  // referent is always in the report.
+  collapseInUseDetail(
+    inUseSkipped.map(([, row]) => row),
+    surfaces,
+  );
+  for (const [entry, row] of inUseSkipped) {
+    entry.reason = `in use: ${row.inUseDetail ?? "a source names it"}`;
   }
 
   // A named tool status never reported is a refusal, not a silence.
