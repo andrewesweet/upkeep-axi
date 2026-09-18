@@ -30,10 +30,11 @@ describe("status (TOON default)", () => {
     expect(out).toContain("generatedAt: ");
     // One row per tool, fixed columns:
     // 5 npm + 3 mise + 2 uv + 3 cargo + 2 bun + 4 gh + 2 skills + 1 fnm + 3 apt
-    // + 6 claude + 1 codex + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes
-    // + 1 firstmate (no git on the fake PATH).
+    // + 1 snap (no snapd behind the pinned socket) + 6 claude + 1 codex
+    // + 1 opencode + 2 pi + 3 herdr + 1 no-mistakes + 1 firstmate (no git on
+    // the fake PATH).
     expect(out).toContain(
-      "tools[40]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[41]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     // npm rows: tier none, minor, unparseable-as-major, and unknown latest.
     expect(out).toContain(
@@ -119,6 +120,8 @@ describe("status (TOON default)", () => {
     expect(out).toContain(
       "  apt,reboot-required,false,null,null,null,null,null,null",
     );
+    // snap has no snapd behind the pinned socket: the one-row absent manager.
+    expect(out).toContain("  snap,snap,false,null,null,null,null,null,null");
     // Claude Code itself pins via its native installer; plugin versions come
     // from the plugin manifest or the installer's record; enabled but not
     // installed plugins report only their absence; marketplaces report their
@@ -178,7 +181,8 @@ describe("status (TOON default)", () => {
     expect(out.indexOf("  gh,")).toBeLessThan(out.indexOf("  skills,"));
     expect(out.indexOf("  skills,")).toBeLessThan(out.indexOf("  fnm,"));
     expect(out.indexOf("  fnm,")).toBeLessThan(out.indexOf("  apt,"));
-    expect(out.indexOf("  apt,")).toBeLessThan(out.indexOf("  claude,"));
+    expect(out.indexOf("  apt,")).toBeLessThan(out.indexOf("  snap,"));
+    expect(out.indexOf("  snap,")).toBeLessThan(out.indexOf("  claude,"));
     expect(out.indexOf("  claude,")).toBeLessThan(out.indexOf("  codex,"));
     expect(out.indexOf("  codex,")).toBeLessThan(out.indexOf("  opencode,"));
     expect(out.indexOf("  opencode,")).toBeLessThan(out.indexOf("  pi,"));
@@ -190,7 +194,7 @@ describe("status (TOON default)", () => {
     expect(out).not.toContain("errors[");
     // Pre-computed counts: only known gaps count, zero facts stay absent.
     expect(out).toContain(
-      "summary:\n  tools: 40\n  gaps: 10\n  major: 3\n  minor: 7",
+      "summary:\n  tools: 41\n  gaps: 10\n  major: 3\n  minor: 7",
     );
     // Contextual help, derived from the invocation: gaps present suggest
     // apply, and the scoping hint stays.
@@ -211,7 +215,7 @@ describe("status (TOON default)", () => {
     const result = await runCli([], fake.env());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "tools[40]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[41]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
   });
 
@@ -222,7 +226,7 @@ describe("status (TOON default)", () => {
     expect(all.code).toBe(0);
     expect(all.stdout).not.toContain("  uv,");
     expect(all.stdout).toContain(
-      "tools[38]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
+      "tools[39]{surface,tool,installed,version,latest,tier,in_use,apply,pin}:",
     );
     const scoped = await runCli(
       ["status", "--surface", "npm,mise"],
@@ -1082,7 +1086,7 @@ describe("status --json", () => {
     };
     expect(model.schemaVersion).toBe(3);
     expect(typeof model.generatedAt).toBe("string");
-    expect(model.tools).toHaveLength(40);
+    expect(model.tools).toHaveLength(41);
     const typescript = model.tools.find((row) => row.tool === "typescript");
     expect(typescript).toEqual({
       surface: "npm",
@@ -1394,7 +1398,7 @@ describe("usage errors", () => {
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("Unknown surface: nope");
     expect(result.stdout).toContain(
-      "Known surfaces: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes",
+      "Known surfaces: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, snap, claude, codex, opencode, pi, herdr, no-mistakes, firstmate",
     );
   });
 
@@ -1521,7 +1525,7 @@ describe("config resolution", () => {
     const result = await runCli(["status"], fake.env());
     expect(result.code).toBe(2);
     expect(result.stdout).toContain(
-      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes, firstmate, snap)",
+      "Config `surfaces.npn` is not a known surface (known: npm, mise, uv, cargo, bun, gh, skills, fnm, apt, snap, claude, codex, opencode, pi, herdr, no-mistakes, firstmate)",
     );
   });
 

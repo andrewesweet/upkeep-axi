@@ -1,7 +1,7 @@
 ---
 name: upkeep-axi
 description: >
-  Report this workstation's update inventory via the upkeep-axi CLI - installed vs available versions per surface (npm, mise, uv, cargo, bun, gh, skills, fnm, apt, claude, codex, opencode, pi, herdr, no-mistakes, firstmate), the semver tier of each gap, whether the tool is in use, PATH skew, and the exact apply and pin commands. Use when the user asks what is outdated, before updating or pinning workstation tools, when checking whether an update took effect, or before applying updates with upkeep-axi apply.
+  Report this workstation's update inventory via the upkeep-axi CLI - installed vs available versions per surface (npm, mise, uv, cargo, bun, gh, skills, fnm, apt, snap, claude, codex, opencode, pi, herdr, no-mistakes, firstmate), the semver tier of each gap, whether the tool is in use, PATH skew, and the exact apply and pin commands. Use when the user asks what is outdated, before updating or pinning workstation tools, when checking whether an update took effect, or before applying updates with upkeep-axi apply.
 user-invocable: false
 ---
 
@@ -11,7 +11,7 @@ Report workstation update inventory across surfaces. Read-only `status` reports 
 the semver tier of each gap, in-use conflicts, PATH skew, and the exact
 commands that apply or pin each tool. `apply` plans by default and runs a
 vendor's own updater only with `--execute`; every run is journaled. The tool
-never runs as root, and report-only surfaces (apt) are never applied.
+never runs as root, and report-only surfaces (apt, snap) are never applied.
 
 Commands (kept identical to the CLI's own top-level help):
 

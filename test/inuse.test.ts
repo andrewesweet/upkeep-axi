@@ -11,13 +11,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { InUseProber, markInUse } from "../src/inuse.js";
+import { snapSurface } from "../src/surfaces/snap.js";
 import type { ToolStatus } from "../src/types.js";
-import { createEnv, type FakeEnv } from "./helpers.js";
+import { createEnv, startSnapdFixture, type FakeEnv } from "./helpers.js";
 
 /**
  * The in-use process matcher runs in-process, so these are unit tests, not
- * CLI spawns: no surface carries executable roots yet (the snap surface
- * supplies them when it lands), and the matcher is the piece under test.
+ * CLI spawns: the matcher is the piece under test, and the snap surface's
+ * rows (which declare the executable roots) enter only through its status.
  * The running-process technique is the existing one from the apply suite:
  * a copy of /usr/bin/sleep gives the spawned process a real inode without
  * touching any real executable.
@@ -201,6 +202,77 @@ describe("in-use executable roots", () => {
       ]);
     } finally {
       sleeper.kill("SIGKILL");
+    }
+  });
+
+  it("snap rows ignore the launcher and same-name PATH copies; only the root marks in use", async () => {
+    const env = createEnv();
+    // /snap/bin/firefox is a symlink to the generic snapd launcher: a
+    // launcher-shaped process on PATH must not claim the firefox row.
+    const launcher = join(env.root, "usr/lib/snapd/snap");
+    mkdirSync(dirname(launcher), { recursive: true });
+    copyFileSync("/usr/bin/sleep", launcher);
+    chmodSync(launcher, 0o755);
+    symlinkSync(launcher, join(env.binDir, "firefox"));
+    const fixture = await startSnapdFixture(env.root);
+    const rowsFromSurface = async (): Promise<ToolStatus[]> => {
+      fixture.queue(
+        { ok: { version: "2.76.3", "snap-mount-dir": join(env.root, "snap") } },
+        {
+          ok: [
+            {
+              name: "firefox",
+              status: "active",
+              type: "app",
+              version: "154.0.1-1",
+              revision: "8929",
+              apps: [{ name: "firefox" }],
+            },
+          ],
+        },
+        { ok: [] },
+      );
+      return snapSurface.status({
+        config: { surfaces: { snap: { socketPath: fixture.socketPath } } },
+        surface: { socketPath: fixture.socketPath },
+        env: env.env(),
+        exec: async () => ({
+          code: 0,
+          stdout: "",
+          stderr: "",
+          timedOut: false,
+        }),
+      });
+    };
+    try {
+      const launcherProcess = spawn(join(env.binDir, "firefox"), ["60"], {
+        stdio: "ignore",
+      });
+      try {
+        await untilProcessAppears();
+        const rows = await rowsFromSurface();
+        expect(rows.map((row) => row.tool)).toEqual(["firefox"]);
+        await markInUse(snapSurface, rows, new InUseProber(env.env()));
+        expect(rows[0]?.inUse).toBe(false);
+        expect(rows[0]?.inUseDetail).toBeUndefined();
+      } finally {
+        launcherProcess.kill("SIGKILL");
+      }
+      const exe = snapSleeper(env);
+      const imageProcess = spawn(exe, ["60"], { stdio: "ignore" });
+      try {
+        await untilProcessAppears();
+        const rows = await rowsFromSurface();
+        await markInUse(snapSurface, rows, new InUseProber(env.env()));
+        expect(rows[0]?.inUse).toBe(true);
+        expect(rows[0]?.inUseDetail).toBe(
+          `process ${imageProcess.pid} runs ${exe}`,
+        );
+      } finally {
+        imageProcess.kill("SIGKILL");
+      }
+    } finally {
+      await fixture.close();
     }
   });
 

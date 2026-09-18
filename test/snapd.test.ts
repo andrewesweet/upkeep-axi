@@ -272,11 +272,15 @@ describe("snapd test seam", () => {
     );
   });
 
-  it("still names --surface snap unknown until the surface module registers", async () => {
+  it("--surface snap resolves now that the surface module registers", async () => {
     const fake = stdEnv();
     const result = await runCli(["status", "--surface", "snap"], fake.env());
-    expect(result.code).toBe(2);
-    expect(result.stdout).toContain("Unknown surface: snap");
+    expect(result.code).toBe(0);
+    // The pinned socket is absent: the one-row absent manager, no error.
+    expect(result.stdout).toContain(
+      "  snap,snap,false,null,null,null,null,null,null",
+    );
+    expect(result.stdout).not.toContain("errors[");
   });
 });
 
