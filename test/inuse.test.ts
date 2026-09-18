@@ -3,6 +3,7 @@ import {
   chmodSync,
   copyFileSync,
   linkSync,
+  rmSync,
   mkdirSync,
   symlinkSync,
 } from "node:fs";
@@ -142,39 +143,43 @@ describe("in-use executable roots", () => {
     } catch {
       // Cross-device: fall back to a copy of the same inode's content.
       copyFileSync(process.execPath, driverNode);
+      chmodSync(driverNode, 0o755);
     }
-    chmodSync(driverNode, 0o755);
-    const driver = spawn(
-      driverNode,
-      [
-        "--input-type=module",
-        "-e",
-        DRIVER_SOURCE,
-        exe,
-        join(env.root, "snap/firefox"),
-      ],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
-    let stdout = "";
-    driver.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf-8");
-    });
-    const code = await new Promise<number | null>((resolve, reject) => {
-      driver.on("error", reject);
-      driver.on("close", resolve);
-    });
-    expect(code).toBe(0);
-    const report = JSON.parse(stdout) as {
-      pid: number;
-      facts: Array<{ detail: string }>;
-    };
-    expect(report.facts).toHaveLength(1);
-    expect(report.facts[0]?.detail).toContain(exe);
-    // The driver's own exe sits under the root; it must not be the fact.
-    expect(report.facts[0]?.detail).not.toContain(driverNode);
-    expect(String(report.pid)).not.toBe(
-      report.facts[0]?.detail.match(/^process (\d+) /)?.[1],
-    );
+    try {
+      const driver = spawn(
+        driverNode,
+        [
+          "--input-type=module",
+          "-e",
+          DRIVER_SOURCE,
+          exe,
+          join(env.root, "snap/firefox"),
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let stdout = "";
+      driver.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf-8");
+      });
+      const code = await new Promise<number | null>((resolve, reject) => {
+        driver.on("error", reject);
+        driver.on("close", resolve);
+      });
+      expect(code).toBe(0);
+      const report = JSON.parse(stdout) as {
+        pid: number;
+        facts: Array<{ detail: string }>;
+      };
+      expect(report.facts).toHaveLength(1);
+      expect(report.facts[0]?.detail).toContain(exe);
+      // The driver's own exe sits under the root; it must not be the fact.
+      expect(report.facts[0]?.detail).not.toContain(driverNode);
+      expect(String(report.pid)).not.toBe(
+        report.facts[0]?.detail.match(/^process (\d+) /)?.[1],
+      );
+    } finally {
+      rmSync(driverNode, { force: true });
+    }
   });
 
   it("reports one fact when an exact match and a root hit one process", async () => {

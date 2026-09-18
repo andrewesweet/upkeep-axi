@@ -111,7 +111,7 @@ export class InUseProber {
       }
     }
     const roots = executableRoots
-      .map(executableRootPrefix)
+      .map((root) => executableRootPrefix(realpath(root)))
       .filter((root) => root !== undefined);
     for (const list of processes.values()) {
       for (const process of list) {
@@ -215,9 +215,8 @@ export class InUseProber {
  * an empty prefix would match every process on the host.
  */
 function executableRootPrefix(root: string): string | undefined {
-  const trimmed = root.trim();
-  if (!trimmed) return undefined;
-  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+  if (!root) return undefined;
+  return root.endsWith("/") ? root : `${root}/`;
 }
 
 /**
