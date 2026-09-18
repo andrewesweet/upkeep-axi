@@ -10,7 +10,12 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { InUseProber, markInUse, type InUseFact } from "../src/inuse.js";
+import {
+  collapseInUseDetail,
+  InUseProber,
+  markInUse,
+  type InUseFact,
+} from "../src/inuse.js";
 import { snapSurface } from "../src/surfaces/snap.js";
 import type { ToolStatus } from "../src/types.js";
 import { createEnv, startSnapdFixture, type FakeEnv } from "./helpers.js";
@@ -370,6 +375,7 @@ describe("in-use fact collapse", () => {
         },
       ];
       await markInUse(sharedExecutableSurface(), rows, prober);
+      collapseInUseDetail(rows, [sharedExecutableSurface()]);
       // The manager row states the fact; rows measuring the same set
       // reference it instead of repeating it; a row measuring nothing
       // stays clear.
@@ -379,6 +385,46 @@ describe("in-use fact collapse", () => {
       expect(rows[2]?.inUseDetail).toBe("same as testsurface,testtool");
       expect(rows[3]?.inUse).toBe(false);
       expect(rows[3]?.inUseDetail).toBeUndefined();
+    } finally {
+      sleeper.kill("SIGKILL");
+    }
+  });
+
+  it("keeps the full detail when the manager row is not among the emitted rows", async () => {
+    const env = createEnv();
+    const exe = join(env.root, "lib/testtool-real");
+    mkdirSync(dirname(exe), { recursive: true });
+    copyFileSync("/usr/bin/sleep", exe);
+    chmodSync(exe, 0o755);
+    symlinkSync(exe, join(env.binDir, "testtool"));
+    const prober = new InUseProber(env.env());
+    const sleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+      stdio: "ignore",
+    });
+    try {
+      await untilProcessAppears();
+      const rows: ToolStatus[] = [
+        {
+          surface: "testsurface",
+          tool: "testtool",
+          installed: true,
+          applyCommand: "testtool update",
+        },
+        {
+          surface: "testsurface",
+          tool: "plugin@official",
+          installed: true,
+          applyCommand: "testtool plugin update plugin@official",
+        },
+      ];
+      await markInUse(sharedExecutableSurface(), rows, prober);
+      // A filter dropped the manager row: the plugin row has no referent,
+      // so it states the fact itself.
+      const emitted = rows.filter((row) => row.tool !== "testtool");
+      collapseInUseDetail(emitted, [sharedExecutableSurface()]);
+      expect(emitted[0]?.inUseDetail).toBe(
+        `process ${sleeper.pid} runs ${exe}`,
+      );
     } finally {
       sleeper.kill("SIGKILL");
     }
@@ -420,6 +466,7 @@ describe("in-use fact collapse", () => {
         },
       ];
       await markInUse(sharedExecutableSurface(), rows, prober);
+      collapseInUseDetail(rows, [sharedExecutableSurface()]);
       expect(rows[0]?.inUseDetail).toBe(
         `process ${managerSleeper.pid} runs ${managerExe}`,
       );
@@ -462,6 +509,7 @@ describe("in-use fact collapse", () => {
         },
       ];
       await markInUse(sharedExecutableSurface(), rows, prober);
+      collapseInUseDetail(rows, [sharedExecutableSurface()]);
       // The manager measures clear, so there is nothing to reference: the
       // in-use row states its own fact in full.
       expect(rows[0]?.inUse).toBe(false);

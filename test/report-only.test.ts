@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { main } from "../src/cli.js";
-import { SURFACE_REGISTRY } from "../src/surfaces/index.js";
 import type { Surface } from "../src/types.js";
-import { createEnv, installStandardFakes, type FakeEnv } from "./helpers.js";
+import {
+  createEnv,
+  installStandardFakes,
+  runMain,
+  withSurface,
+  type FakeEnv,
+} from "./helpers.js";
 
 const FAKE_SURFACE_ID = "fake-ro";
 /** The manual command the fake surface publishes on its rows. */
@@ -41,45 +45,9 @@ function fakeReportOnlySurface(): Surface {
   };
 }
 
-/**
- * Run the real command graph in-process with the environment pinned to the
- * fixture - the same hermetic seam the spawned tests use (the process PATH
- * is exactly the fake bin directory, XDG roots live under the fixture root)
- * - after registering the fake surface through the real registry seam. No
- * probe can reach a real package manager, and nothing mutates the host.
- */
-async function runMain(
-  args: string[],
-  env: FakeEnv,
-): Promise<{ code: number; output: string }> {
-  const savedEnv = process.env;
-  const savedExitCode = process.exitCode;
-  const chunks: string[] = [];
-  let code: number;
-  process.env = env.env();
-  try {
-    await main({
-      argv: args,
-      stdout: { write: (chunk: string) => chunks.push(chunk) },
-    });
-    code = process.exitCode ?? 0;
-  } finally {
-    process.env = savedEnv;
-    process.exitCode = savedExitCode;
-  }
-  return { code, output: chunks.join("") };
-}
-
 /** Run one assertion with the fake surface registered, then remove it. */
-async function withFakeSurface(run: () => Promise<void>): Promise<void> {
-  const surface = fakeReportOnlySurface();
-  SURFACE_REGISTRY.push(surface);
-  try {
-    await run();
-  } finally {
-    const index = SURFACE_REGISTRY.indexOf(surface);
-    if (index !== -1) SURFACE_REGISTRY.splice(index, 1);
-  }
+function withFakeSurface(run: () => Promise<void>): Promise<void> {
+  return withSurface(fakeReportOnlySurface(), run);
 }
 
 function fakeEnv(): FakeEnv {

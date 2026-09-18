@@ -54,6 +54,7 @@ import {
   readSnapshot,
   writeSnapshot,
 } from "./snapshot.js";
+import { collapseInUseDetail } from "./inuse.js";
 import { collectStatus } from "./status.js";
 import { VERSION } from "./version.js";
 
@@ -391,6 +392,9 @@ async function statusCommand(
     // word on them.
     filtered = filterToolsByDrift(tools, versionsAfterNewest(records));
   }
+  // Collapse after filtering, so a same-as reference always names a row
+  // that is in the output.
+  collapseInUseDetail(filtered, surfaces);
   const report = {
     generatedAt,
     schemaVersion: SCHEMA_VERSION,

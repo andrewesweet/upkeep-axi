@@ -1,4 +1,5 @@
 import { DEFAULT_APPLY_TIMEOUT_MS, runDelegate } from "./exec.js";
+import { collapseInUseDetail } from "./inuse.js";
 import {
   appendJournal,
   defaultJournalPath,
@@ -12,6 +13,7 @@ import type {
   SemverTier,
   Surface,
   SurfaceContext,
+  ToolStatus,
   UpkeepConfig,
 } from "./types.js";
 
@@ -152,6 +154,7 @@ export async function buildPlan(
 
   const plan: PlanRow[] = [];
   const skipped: SkippedRow[] = [];
+  const inUseSkipped: Array<[SkippedRow, ToolStatus]> = [];
   const planned = new Set<string>();
   const knownRow = new Set<string>();
 
@@ -207,11 +210,9 @@ export async function buildPlan(
     // or below the tier would not have been planned even if free, so it is
     // never reported as skipped.
     if (row.inUse && (!selection.all || tierCandidate)) {
-      skipped.push({
-        surface: row.surface,
-        tool: row.tool,
-        reason: `in use: ${row.inUseDetail ?? "a source names it"}`,
-      });
+      const entry = { surface: row.surface, tool: row.tool, reason: "" };
+      skipped.push(entry);
+      inUseSkipped.push([entry, row]);
       continue;
     }
     if (!tierCandidate) continue;
@@ -229,6 +230,16 @@ export async function buildPlan(
       delegate,
       timeoutMs: applyTimeoutFor(config, row.surface),
     });
+  }
+
+  // The same-as reference is resolved over the skipped rows only, so the
+  // referent is always in the report.
+  collapseInUseDetail(
+    inUseSkipped.map(([, row]) => row),
+    surfaces,
+  );
+  for (const [entry, row] of inUseSkipped) {
+    entry.reason = `in use: ${row.inUseDetail ?? "a source names it"}`;
   }
 
   // A named tool status never reported is a refusal, not a silence.

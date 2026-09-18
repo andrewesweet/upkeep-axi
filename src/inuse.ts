@@ -274,19 +274,15 @@ export function replacedExecutablesFor(
  *
  * The measurement is memoised per executables/roots key: rows of one surface
  * whose applies would replace the same files (every claude plugin names the
- * claude binary) share one fact set, stated once. A row whose fact set
- * equals the manager row's carries the short reference
- * `same as <surface>,<managerTool>` instead of repeating the detail; the
- * reference follows the facts, so a row measuring a different set keeps its
- * own detail, and a manager row that measures clear is never referenced.
+ * claude binary) share one fact set. Every row keeps its full detail here;
+ * `collapseInUseDetail` shortens repeats over the rows an output emits.
  */
 export async function markInUse(
-  surface: Pick<Surface, "id" | "managerTool" | "replacedExecutables">,
+  surface: Pick<Surface, "replacedExecutables">,
   rows: ToolStatus[],
   prober: InUseProber,
 ): Promise<void> {
   const pendingByKey = new Map<string, Promise<InUseFact[]>>();
-  const factsByRow = new Map<ToolStatus, InUseFact[]>();
   await mapLimit(rows, 8, async (row) => {
     if (!row.installed || !row.applyCommand) return;
     const executables = replacedExecutablesFor(surface, row);
@@ -300,33 +296,34 @@ export async function markInUse(
       pendingByKey.set(key, pending);
     }
     const facts = await pending;
-    factsByRow.set(row, facts);
     row.inUse = facts.length > 0;
     if (facts.length > 0) {
       row.inUseDetail = facts.map((fact) => fact.detail).join("; ");
     }
   });
-  const managerRow = rows.find((row) => row.tool === surface.managerTool);
-  const managerFacts = managerRow ? factsByRow.get(managerRow) : undefined;
-  if (!managerRow?.inUse || !managerFacts || managerFacts.length === 0) return;
-  for (const row of rows) {
-    if (row === managerRow || !row.inUse) continue;
-    const facts = factsByRow.get(row);
-    if (!facts || !sameFacts(facts, managerFacts)) continue;
-    row.inUseDetail = `same as ${surface.id},${surface.managerTool}`;
-  }
 }
 
 /**
- * Fact-set equality for the collapsed reference: the same sources and
- * details as a multiset, order aside. Two different keys can measure the
- * same facts (an executable that matches nothing alongside one that does).
+ * Collapse repeated in-use facts over the rows an output emits: a row whose
+ * detail equals its surface's manager row's carries the short reference
+ * `same as <surface>,<managerTool>` instead. The referent must be among
+ * `rows`, so this runs after any filtering (status --since/--changed-only,
+ * apply's tier candidacy); a row whose manager row is absent keeps its
+ * full detail, and a manager row measuring clear is never referenced.
  */
-function sameFacts(a: InUseFact[], b: InUseFact[]): boolean {
-  if (a.length !== b.length) return false;
-  const spell = ({ source, detail }: InUseFact): string =>
-    `${source}\u0000${detail}`;
-  const left = a.map(spell).sort();
-  const right = b.map(spell).sort();
-  return left.every((spelled, index) => spelled === right[index]);
+export function collapseInUseDetail(
+  rows: ToolStatus[],
+  surfaces: ReadonlyArray<Pick<Surface, "id" | "managerTool">>,
+): void {
+  for (const surface of surfaces) {
+    const manager = rows.find(
+      (row) => row.surface === surface.id && row.tool === surface.managerTool,
+    );
+    if (!manager?.inUseDetail) continue;
+    for (const row of rows) {
+      if (row === manager || row.surface !== surface.id) continue;
+      if (row.inUseDetail !== manager.inUseDetail) continue;
+      row.inUseDetail = `same as ${surface.id},${surface.managerTool}`;
+    }
+  }
 }
