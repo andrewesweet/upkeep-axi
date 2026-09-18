@@ -54,7 +54,10 @@ export function loadConfig(path: string): UpkeepConfig {
       "VALIDATION_ERROR",
     );
   }
-  const known = SURFACE_REGISTRY.map((surface) => surface.id);
+  const known = [
+    ...SURFACE_REGISTRY.map((surface) => surface.id),
+    ...PENDING_SURFACE_IDS,
+  ];
   const surfaces: Record<string, SurfaceConfig> = {};
   for (const [id, value] of Object.entries(
     root.surfaces as Record<string, unknown>,
@@ -70,6 +73,16 @@ export function loadConfig(path: string): UpkeepConfig {
   }
   return { surfaces };
 }
+
+/**
+ * Surface ids whose config schema already validates ahead of their surface
+ * module: `snap` joins SURFACE_REGISTRY in a later slice, but its
+ * `socketPath` option must validate now so configs (and the test suite's
+ * fake environments, which pin an absent socket) can carry it. Until the
+ * module lands, a `snap` config entry is accepted and simply unused, and
+ * the CLI's --surface filter still names `snap` as unknown.
+ */
+const PENDING_SURFACE_IDS: readonly string[] = ["snap"];
 
 function validateSurface(
   id: string,
@@ -89,6 +102,13 @@ function validateSurface(
   ) {
     throw configError(
       `surfaces.${id}.rebootRequiredPath`,
+      "must be a non-empty string",
+      path,
+    );
+  }
+  if (entry.socketPath !== undefined && !isNonEmptyString(entry.socketPath)) {
+    throw configError(
+      `surfaces.${id}.socketPath`,
       "must be a non-empty string",
       path,
     );

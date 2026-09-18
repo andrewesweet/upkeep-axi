@@ -41,6 +41,8 @@ export interface SurfaceConfig {
   tools?: ToolConfig[];
   /** apt only: where the reboot-required flag lives (default /var/run/reboot-required). */
   rebootRequiredPath?: string;
+  /** snap only: the snapd REST API socket (default /run/snapd.socket). */
+  socketPath?: string;
   /** firstmate only: the local clone of the fork (default /home/andre/tools/firstmate). */
   clonePath?: string;
   /**
