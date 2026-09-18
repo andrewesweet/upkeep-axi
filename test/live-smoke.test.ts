@@ -19,7 +19,7 @@ describe.skipIf(!LIVE)("live smoke: real status on this host", () => {
         schemaVersion: number;
         tools: unknown[];
       };
-      expect(model.schemaVersion).toBe(3);
+      expect(model.schemaVersion).toBe(4);
       expect(Array.isArray(model.tools)).toBe(true);
     },
     { timeout: 120_000 },

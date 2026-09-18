@@ -161,7 +161,7 @@ exit 1`,
       tools: Array<Record<string, unknown>>;
       hidden?: number;
     };
-    expect(model.schemaVersion).toBe(3);
+    expect(model.schemaVersion).toBe(4);
     const snapshot = JSON.parse(
       readFileSync(join(fake.xdgStateDir, SNAPSHOT), "utf-8"),
     ) as { generatedAt: string };

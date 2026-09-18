@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { decode } from "@toon-format/toon";
+import { mkdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import {
   createEnv,
   installStandardFakes,
@@ -560,3 +563,286 @@ describe("snapTier", () => {
 function joinAbsent(fake: FakeEnv): string {
   return `${fake.root}/no-snapd.socket`;
 }
+
+/** Three fixture PATH dirs: the snap bin dir and two other bin dirs. */
+function binDirs(fake: FakeEnv): {
+  snapbin: string;
+  otherbin: string;
+  thirdbin: string;
+} {
+  const snapbin = join(fake.root, "snapbin");
+  const otherbin = join(fake.root, "otherbin");
+  const thirdbin = join(fake.root, "thirdbin");
+  for (const dir of [snapbin, otherbin, thirdbin]) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return { snapbin, otherbin, thirdbin };
+}
+
+/** system-info naming a fixture snap bin dir. */
+function infoWithBinDir(snapbin: string): Record<string, unknown> {
+  return { ...SYSTEM_INFO, "snap-bin-dir": snapbin };
+}
+
+/** Queue the standard four reads with a snap bin dir on the status reads. */
+function queueWithBinDir(
+  fixture: SnapdFixture,
+  snapbin: string,
+  snap: unknown,
+  candidates: unknown,
+): void {
+  const info = infoWithBinDir(snapbin);
+  fixture.queue({ ok: info }, { ok: info }, { ok: [snap] }, { ok: candidates });
+}
+
+/** The TOON body: everything before the help block. */
+function toonBody(stdout: string): string {
+  return stdout.slice(0, stdout.indexOf("\nhelp["));
+}
+
+describe("snap overlap and snap_state (schema v4)", () => {
+  it("reports the motivating state: the duplicate firefox beside the snap launcher", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin, otherbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      fake.writeFakeIn(otherbin, "firefox", "exit 0");
+      pinSnapSurface(fake, fixture);
+      queueWithBinDir(fixture, snapbin, firefoxSnap(), [FIREFOX_CANDIDATE]);
+      const result = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      expect(result.code).toBe(0);
+      // The row, verbatim as the plan proposes it for this state.
+      expect(result.stdout).toContain(
+        "  snap,firefox,true,154.0.1-1,156.0-1,major,false,sudo snap refresh firefox,null",
+      );
+      // skew[] cannot express this state; overlap[] does, claiming only the
+      // measured paths and never naming the other copy's owner. The snap's
+      // other app (geckodriver) has no PATH copy and contributes nothing.
+      expect(result.stdout).toContain(
+        "overlap[1]{surface,tool,command,resolvedPath,otherPath}:\n" +
+          `  snap,firefox,firefox,${snapbin}/firefox,${otherbin}/firefox`,
+      );
+      // The retained vendor facts, displayed for the first time. TOON
+      // quotes the numeric revision strings.
+      expect(result.stdout).toContain(
+        "snap_state[1]{surface,tool,channel,revision,available_revision,held_until,refresh_inhibited_until}:\n" +
+          '  snap,firefox,latest/stable,"8803","8929",null,null',
+      );
+      // The bin dir came from the same system-info read: no extra request.
+      expect(fixture.requests).toEqual([
+        "GET /v2/system-info",
+        "GET /v2/system-info",
+        "GET /v2/snaps",
+        "GET /v2/find?select=refresh",
+      ]);
+    });
+  });
+
+  it("emits no overlap when two PATH names resolve to one launcher", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin, otherbin, thirdbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      symlinkSync(join(snapbin, "firefox"), join(otherbin, "firefox"));
+      symlinkSync(join(snapbin, "firefox"), join(thirdbin, "firefox"));
+      pinSnapSurface(fake, fixture);
+      queueWithBinDir(fixture, snapbin, firefoxSnap(), [FIREFOX_CANDIDATE]);
+      const result = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${thirdbin}:${fake.binDir}`,
+      });
+      expect(result.code).toBe(0);
+      // Aliases of the launcher are the same executable: no overlap row.
+      expect(result.stdout).not.toContain("overlap[");
+      expect(result.stdout).toContain("snap_state[1]");
+    });
+  });
+
+  it("emits no overlap[] block at all when no other copy exists", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      pinSnapSurface(fake, fixture);
+      const reads = [
+        { ok: infoWithBinDir(snapbin) },
+        { ok: infoWithBinDir(snapbin) },
+        { ok: [firefoxSnap()] },
+        { ok: [FIREFOX_CANDIDATE] },
+      ];
+      // Two runs against one fixture: TOON first, then JSON, each making
+      // the standard four reads.
+      fixture.queue(...reads, ...reads);
+      const toon = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${fake.binDir}`,
+      });
+      expect(toon.code).toBe(0);
+      expect(toon.stdout).not.toContain("overlap[");
+      const json = await runCli(["status", "--surface", "snap", "--json"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${fake.binDir}`,
+      });
+      const model = JSON.parse(json.stdout) as Record<string, unknown>;
+      expect("overlap" in model).toBe(false);
+      expect("snap_state" in model).toBe(true);
+    });
+  });
+
+  it("finds no overlap when system-info names no snap bin dir", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      // Two firefox copies on PATH, but neither is provably the snap's:
+      // the default /snap/bin is not on the fixture PATH, so the
+      // snap-owned candidate cannot be identified.
+      const { snapbin, otherbin } = binDirs(fake);
+      fake.writeFakeIn(snapbin, "firefox", "exit 0");
+      fake.writeFakeIn(otherbin, "firefox", "exit 0");
+      pinSnapSurface(fake, fixture);
+      queueReads(fixture, [firefoxSnap()], [FIREFOX_CANDIDATE]);
+      const result = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      expect(result.code).toBe(0);
+      expect(result.stdout).not.toContain("overlap[");
+    });
+  });
+
+  it("a held snap shows its hold in snap_state while its row still carries its gap", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      pinSnapSurface(fake, fixture);
+      queueReads(
+        fixture,
+        [
+          firefoxSnap({
+            hold: "2026-10-01T00:00:00Z",
+            "refresh-inhibit": { "proceed-time": "2026-09-25T00:00:00Z" },
+          }),
+        ],
+        [FIREFOX_CANDIDATE],
+      );
+      const result = await runCli(["status", "--surface", "snap"], fake.env());
+      expect(result.code).toBe(0);
+      // The hold is a displayed vendor fact, never an error and never a
+      // suppressed gap. TOON quotes the revision and timestamp strings.
+      expect(result.stdout).toContain(
+        "snap_state[1]{surface,tool,channel,revision,available_revision,held_until,refresh_inhibited_until}:\n" +
+          '  snap,firefox,latest/stable,"8803","8929","2026-10-01T00:00:00Z","2026-09-25T00:00:00Z"',
+      );
+      expect(result.stdout).toContain(
+        "  snap,firefox,true,154.0.1-1,156.0-1,major,false,sudo snap refresh firefox,null",
+      );
+      expect(result.stdout).not.toContain("errors[");
+    });
+  });
+
+  it("maps gating-hold to held_until when no user hold exists", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      pinSnapSurface(fake, fixture);
+      queueReads(
+        fixture,
+        [firefoxSnap({ "gating-hold": "2026-11-01T00:00:00Z" })],
+        [FIREFOX_CANDIDATE],
+      );
+      const result = await runCli(
+        ["status", "--surface", "snap", "--json"],
+        fake.env(),
+      );
+      expect(result.code).toBe(0);
+      const model = JSON.parse(result.stdout) as {
+        snap_state?: Array<Record<string, unknown>>;
+      };
+      expect(model.snap_state).toEqual([
+        {
+          surface: "snap",
+          tool: "firefox",
+          channel: "latest/stable",
+          revision: "8803",
+          available_revision: "8929",
+          held_until: "2026-11-01T00:00:00Z",
+        },
+      ]);
+    });
+  });
+
+  it("leaves hold fields absent when snapd sends undocumented shapes", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      pinSnapSurface(fake, fixture);
+      queueReads(
+        fixture,
+        [
+          firefoxSnap({
+            hold: { until: "2026-10-01T00:00:00Z" },
+            "refresh-inhibit": "2026-09-25T00:00:00Z",
+          }),
+        ],
+        [FIREFOX_CANDIDATE],
+      );
+      const result = await runCli(
+        ["status", "--surface", "snap", "--json"],
+        fake.env(),
+      );
+      expect(result.code).toBe(0);
+      const model = JSON.parse(result.stdout) as {
+        errors?: unknown[];
+        snap_state?: Array<Record<string, unknown>>;
+      };
+      // A shape snapd does not document is never an error; the display
+      // fields stay absent and the verbatim values remain on the row.
+      expect(model.errors).toBeUndefined();
+      expect(model.snap_state?.[0]?.held_until).toBeUndefined();
+      expect(model.snap_state?.[0]?.refresh_inhibited_until).toBeUndefined();
+      expect(model.snap_state?.[0]?.channel).toBe("latest/stable");
+    });
+  });
+
+  it("renders overlap and snap_state identically in TOON and JSON", async () => {
+    const fake = stdEnv();
+    await withFixture(fake, async (fixture) => {
+      const { snapbin, otherbin } = binDirs(fake);
+      fake.writeFakeIn(otherbin, "firefox", "exit 0");
+      pinSnapSurface(fake, fixture);
+      const reads = [
+        { ok: infoWithBinDir(snapbin) },
+        { ok: infoWithBinDir(snapbin) },
+        {
+          ok: [
+            firefoxSnap({
+              hold: "2026-10-01T00:00:00Z",
+              "refresh-inhibit": { "proceed-time": "2026-09-25T00:00:00Z" },
+            }),
+          ],
+        },
+        { ok: [FIREFOX_CANDIDATE] },
+      ];
+      fixture.queue(...reads, ...reads);
+      const toon = await runCli(["status", "--surface", "snap"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      const json = await runCli(["status", "--surface", "snap", "--json"], {
+        ...fake.env(),
+        PATH: `${snapbin}:${otherbin}:${fake.binDir}`,
+      });
+      const model = JSON.parse(json.stdout) as {
+        overlap?: Array<Record<string, unknown>>;
+        snap_state?: Array<Record<string, unknown>>;
+      };
+      const decoded = decode(toonBody(toon.stdout)) as {
+        overlap?: Array<Record<string, unknown>>;
+        snap_state?: Array<Record<string, unknown>>;
+      };
+      // Every field is set in this fixture, so absent-vs-null cannot hide
+      // a spelling difference between the two renderers.
+      expect(decoded.overlap).toEqual(model.overlap);
+      expect(decoded.snap_state).toEqual(model.snap_state);
+    });
+  });
+});
