@@ -78,7 +78,16 @@ describe("apply planning (no --execute)", () => {
     expect(toon.stdout).toContain(
       "  npm,typescript,5.6.3,5.7.2,minor,npm install -g typescript@latest,npm install -g typescript@5.6.3",
     );
-    expect(toon.stdout).toContain("nothing has run yet");
+    // The plan hint carries the invocation forward: the exact command this
+    // plan would run, plus the generic --all hint (the invocation was not
+    // --all).
+    expect(toon.stdout).toContain(
+      "Run `upkeep-axi apply npm --execute` to run this plan; nothing has run yet",
+    );
+    expect(toon.stdout).toContain(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>` to plan every gap at or below the tier",
+    );
+    expect(toon.stdout).not.toContain("apply ...");
     expect(toon.stdout).not.toContain("results[");
   });
 
@@ -107,6 +116,30 @@ describe("apply planning (no --execute)", () => {
     ]);
     expect(model.plan.some((row) => row.surface === "apt")).toBe(false);
     expect(model.plan.some((row) => row.surface === "mise")).toBe(false);
+    // The --all plan hint names the exact invoked tier and never repeats
+    // the generic --all hint.
+    const toon = await runCli(
+      ["apply", "--all", "--tier", "minor"],
+      fake.env(),
+    );
+    expect(toon.code).toBe(0);
+    expect(toon.stdout).toContain(
+      "Run `upkeep-axi apply --all --tier minor --execute` to run this plan; nothing has run yet",
+    );
+    expect(toon.stdout).not.toContain(
+      "Run `upkeep-axi apply --all --tier <patch|minor|major>`",
+    );
+  });
+
+  it("carries a supplied --config path into the plan hint", async () => {
+    const fake = stdEnv();
+    const alt = join(fake.root, "alt-config.json");
+    copyFileSync(fake.configPath, alt);
+    const result = await runCli(["apply", "npm", "--config", alt], fake.env());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      `Run \`upkeep-axi apply npm --execute --config ${alt}\` to run this plan; nothing has run yet`,
+    );
   });
 
   it("naming tools selects them whatever their tier", async () => {
@@ -788,6 +821,17 @@ describe("journal verb", () => {
       exit: 0,
     });
   });
+
+  it("refuses a stray positional and hints the bare command", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["journal", "npm"], fake.env());
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "error: Unknown argument `npm` for `journal`",
+    );
+    expect(result.stdout).toContain("Run `upkeep-axi journal`");
+    expect(result.stdout).not.toContain("journal --help");
+  });
 });
 
 describe("status --since and --changed-only", () => {
@@ -846,6 +890,20 @@ describe("status --since and --changed-only", () => {
     expect(changed.code).toBe(0);
     expect((JSON.parse(changed.stdout) as { tools: unknown[] }).tools).toEqual(
       [],
+    );
+
+    // The empty states name their own baseline: the cursor wording for
+    // --since, the journal's newest records for --changed-only.
+    const sinceToon = await runCli(["status", "--since", "1"], fake.env());
+    expect(sinceToon.code).toBe(0);
+    expect(sinceToon.stdout).toContain("Nothing changed since the cursor");
+    const changedToon = await runCli(["status", "--changed-only"], fake.env());
+    expect(changedToon.code).toBe(0);
+    expect(changedToon.stdout).toContain(
+      "Nothing changed since the journal's newest records",
+    );
+    expect(changedToon.stdout).not.toContain(
+      "Nothing changed since the cursor",
     );
 
     // A change made outside upkeep-axi drifts the row from the journal's

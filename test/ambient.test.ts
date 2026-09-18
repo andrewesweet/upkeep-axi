@@ -221,6 +221,17 @@ exit 1`,
     );
   });
 
+  it("refuses a stray positional and hints the bare command", async () => {
+    const fake = stdEnv();
+    const result = await runCli(["ambient", "extra"], offline(fake));
+    expect(result.code).toBe(2);
+    expect(result.stdout).toContain(
+      "error: Unknown argument `extra` for `ambient`",
+    );
+    expect(result.stdout).toContain("Run `upkeep-axi ambient`");
+    expect(result.stdout).not.toContain("ambient --help");
+  });
+
   it("keeps the status report when the inventory cannot be saved", async () => {
     const fake = stdEnv();
     const blocked = join(fake.root, "state-is-a-file");
