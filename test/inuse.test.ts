@@ -18,24 +18,27 @@ import {
 } from "../src/inuse.js";
 import { snapSurface } from "../src/surfaces/snap.js";
 import type { ToolStatus } from "../src/types.js";
-import { createEnv, startSnapdFixture, type FakeEnv } from "./helpers.js";
+import {
+  createEnv,
+  SLEEPER_ARGS,
+  startSnapdFixture,
+  writeSleeper,
+  type FakeEnv,
+} from "./helpers.js";
 
 /**
  * The in-use process matcher runs in-process, so these are unit tests, not
  * CLI spawns: the matcher is the piece under test, and the snap surface's
  * rows (which declare the executable roots) enter only through its status.
  * The running-process technique is the existing one from the apply suite:
- * a copy of /usr/bin/sleep gives the spawned process a real inode without
+ * a writeSleeper copy gives the spawned process a real inode without
  * touching any real executable.
  */
 
 /** A harmless long-running process under a fake snap-style mount path. */
 function snapSleeper(env: FakeEnv): string {
   const exe = join(env.root, "snap/firefox/8929/usr/lib/firefox/firefox");
-  mkdirSync(dirname(exe), { recursive: true });
-  copyFileSync("/usr/bin/sleep", exe);
-  chmodSync(exe, 0o755);
-  return exe;
+  return writeSleeper(exe);
 }
 
 async function untilProcessAppears(): Promise<void> {
@@ -52,7 +55,7 @@ const DRIVER_SOURCE = `
 const { spawn } = await import("node:child_process");
 const { InUseProber } = await import(${JSON.stringify(fileURLToPath(new URL("../dist/src/inuse.js", import.meta.url)))});
 const [sleeper, root] = process.argv.slice(1);
-const child = spawn(sleeper, ["60"], { stdio: "ignore" });
+const child = spawn(sleeper, ${JSON.stringify(SLEEPER_ARGS)}, { stdio: "ignore" });
 await new Promise((resolve) => setTimeout(resolve, 300));
 const facts = await new InUseProber({ PATH: "" }).factsFor([], [root]);
 child.kill("SIGKILL");
@@ -64,7 +67,7 @@ describe("in-use executable roots", () => {
     const env = createEnv();
     const exe = snapSleeper(env);
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(exe, ["60"], { stdio: "ignore" });
+    const sleeper = spawn(exe, SLEEPER_ARGS, { stdio: "ignore" });
     try {
       await untilProcessAppears();
       // No `firefox` exists on the fake PATH - like /snap/bin/firefox
@@ -86,7 +89,7 @@ describe("in-use executable roots", () => {
     const env = createEnv();
     const exe = snapSleeper(env);
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(exe, ["60"], { stdio: "ignore" });
+    const sleeper = spawn(exe, SLEEPER_ARGS, { stdio: "ignore" });
     try {
       await untilProcessAppears();
       // No roots declared: exact matching only, and nothing named on PATH.
@@ -107,7 +110,7 @@ describe("in-use executable roots", () => {
     const env = createEnv();
     const exe = snapSleeper(env);
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(exe, ["60"], { stdio: "ignore" });
+    const sleeper = spawn(exe, SLEEPER_ARGS, { stdio: "ignore" });
     try {
       await untilProcessAppears();
       const rows: ToolStatus[] = [
@@ -193,7 +196,7 @@ describe("in-use executable roots", () => {
     const exe = snapSleeper(env);
     symlinkSync(exe, join(env.binDir, "myexe"));
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(join(env.binDir, "myexe"), ["60"], {
+    const sleeper = spawn(join(env.binDir, "myexe"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
@@ -215,9 +218,7 @@ describe("in-use executable roots", () => {
     // /snap/bin/firefox is a symlink to the generic snapd launcher: a
     // launcher-shaped process on PATH must not claim the firefox row.
     const launcher = join(env.root, "usr/lib/snapd/snap");
-    mkdirSync(dirname(launcher), { recursive: true });
-    copyFileSync("/usr/bin/sleep", launcher);
-    chmodSync(launcher, 0o755);
+    writeSleeper(launcher);
     symlinkSync(launcher, join(env.binDir, "firefox"));
     const fixture = await startSnapdFixture(env.root);
     const rowsFromSurface = async (): Promise<ToolStatus[]> => {
@@ -250,7 +251,7 @@ describe("in-use executable roots", () => {
       });
     };
     try {
-      const launcherProcess = spawn(join(env.binDir, "firefox"), ["60"], {
+      const launcherProcess = spawn(join(env.binDir, "firefox"), SLEEPER_ARGS, {
         stdio: "ignore",
       });
       try {
@@ -264,7 +265,7 @@ describe("in-use executable roots", () => {
         launcherProcess.kill("SIGKILL");
       }
       const exe = snapSleeper(env);
-      const imageProcess = spawn(exe, ["60"], { stdio: "ignore" });
+      const imageProcess = spawn(exe, SLEEPER_ARGS, { stdio: "ignore" });
       try {
         await untilProcessAppears();
         const rows = await rowsFromSurface();
@@ -334,13 +335,10 @@ function countingProber(env: NodeJS.ProcessEnv): {
 describe("in-use fact collapse", () => {
   it("references the manager row when a row measures the same fact set", async () => {
     const env = createEnv();
-    const exe = join(env.root, "lib/testtool-real");
-    mkdirSync(dirname(exe), { recursive: true });
-    copyFileSync("/usr/bin/sleep", exe);
-    chmodSync(exe, 0o755);
+    const exe = writeSleeper(join(env.root, "lib/testtool-real"));
     symlinkSync(exe, join(env.binDir, "testtool"));
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+    const sleeper = spawn(join(env.binDir, "testtool"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
@@ -392,13 +390,10 @@ describe("in-use fact collapse", () => {
 
   it("keeps the full detail when the manager row is not among the emitted rows", async () => {
     const env = createEnv();
-    const exe = join(env.root, "lib/testtool-real");
-    mkdirSync(dirname(exe), { recursive: true });
-    copyFileSync("/usr/bin/sleep", exe);
-    chmodSync(exe, 0o755);
+    const exe = writeSleeper(join(env.root, "lib/testtool-real"));
     symlinkSync(exe, join(env.binDir, "testtool"));
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+    const sleeper = spawn(join(env.binDir, "testtool"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
@@ -435,17 +430,15 @@ describe("in-use fact collapse", () => {
     const managerExe = join(env.root, "lib/testtool-real");
     const workerExe = join(env.root, "lib/worker-real");
     mkdirSync(dirname(managerExe), { recursive: true });
-    copyFileSync("/usr/bin/sleep", managerExe);
-    copyFileSync("/usr/bin/sleep", workerExe);
-    chmodSync(managerExe, 0o755);
-    chmodSync(workerExe, 0o755);
+    writeSleeper(managerExe);
+    writeSleeper(workerExe);
     symlinkSync(managerExe, join(env.binDir, "testtool"));
     symlinkSync(workerExe, join(env.binDir, "workerexe"));
     const prober = new InUseProber(env.env());
-    const managerSleeper = spawn(join(env.binDir, "testtool"), ["60"], {
+    const managerSleeper = spawn(join(env.binDir, "testtool"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
-    const workerSleeper = spawn(join(env.binDir, "workerexe"), ["60"], {
+    const workerSleeper = spawn(join(env.binDir, "workerexe"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
@@ -482,13 +475,10 @@ describe("in-use fact collapse", () => {
 
   it("never references a manager row that measures clear", async () => {
     const env = createEnv();
-    const exe = join(env.root, "lib/worker-real");
-    mkdirSync(dirname(exe), { recursive: true });
-    copyFileSync("/usr/bin/sleep", exe);
-    chmodSync(exe, 0o755);
+    const exe = writeSleeper(join(env.root, "lib/worker-real"));
     symlinkSync(exe, join(env.binDir, "workerexe"));
     const prober = new InUseProber(env.env());
-    const sleeper = spawn(join(env.binDir, "workerexe"), ["60"], {
+    const sleeper = spawn(join(env.binDir, "workerexe"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
