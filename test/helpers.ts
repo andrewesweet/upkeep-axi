@@ -112,10 +112,12 @@ function writeFakeConfigAt(path: string, config: unknown): void {
 }
 
 /**
- * The arguments that keep a `writeSleeper` copy running until it is killed.
- * Any POSIX shell accepts them, whatever name the copy carries.
+ * The arguments that keep a `writeSleeper` copy running, idle, for at most 60
+ * seconds. The system `sleep` runs as a child from the inherited PATH; the
+ * trailing `:` stops the shell from exec'ing it in place of itself, so
+ * /proc/<pid>/exe stays the fixture path.
  */
-export const SLEEPER_ARGS = ["-c", "while :; do :; done"];
+export const SLEEPER_ARGS = ["-c", "sleep 60; :"];
 
 /**
  * A long-running process fixture for the /proc-based in-use tests: a copy of
