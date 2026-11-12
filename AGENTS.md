@@ -40,3 +40,17 @@ Keep this file for knowledge useful to almost every future agent session in this
 Do not repeat what the codebase already shows; point to the authoritative file or command instead.
 Prefer rewriting or pruning existing entries over appending new ones.
 When updating this file, preserve this bar for all agents and keep entries concise.
+
+## Agent skills
+
+### Issue tracker
+
+Fleet work items live in tasks-axi; GitHub issues are for outward-facing deliberation only. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the default canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
