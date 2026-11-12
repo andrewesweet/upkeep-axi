@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -108,6 +109,29 @@ export function createEnv(): FakeEnv {
 function writeFakeConfigAt(path: string, config: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2));
+}
+
+/**
+ * The arguments that keep a `writeSleeper` copy running until it is killed.
+ * Any POSIX shell accepts them, whatever name the copy carries.
+ */
+export const SLEEPER_ARGS = ["-c", "while :; do :; done"];
+
+/**
+ * A long-running process fixture for the /proc-based in-use tests: a copy of
+ * the system shell at `path`, so /proc/<pid>/exe resolves to that path and
+ * the tests can see a process running under the fixture. A copy of
+ * /usr/bin/sleep cannot be used: Ubuntu 26.04 ships sleep as a uutils
+ * coreutils multicall binary that dispatches on the executed file's name, so
+ * a copy named `firefox` exits at once with "coreutils: unknown program
+ * 'firefox'" and the process table has nothing to see. The shell runs the
+ * same under any name.
+ */
+export function writeSleeper(path: string): string {
+  mkdirSync(dirname(path), { recursive: true });
+  copyFileSync("/bin/sh", path);
+  chmodSync(path, 0o755);
+  return path;
 }
 
 /** One canned answer the snapd fixture serves to the next request. */

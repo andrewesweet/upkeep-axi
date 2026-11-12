@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
   readFileSync,
@@ -15,7 +14,9 @@ import {
   installStandardFakes,
   runCli,
   runMain,
+  SLEEPER_ARGS,
   withSurface,
+  writeSleeper,
   type FakeEnv,
 } from "./helpers.js";
 
@@ -539,15 +540,15 @@ exit 1`,
   it("reads the process table and refuses the apply with the pid", async () => {
     const fake = stdEnv();
     // A process whose /proc/<pid>/exe is the copy of codex on the fake PATH:
-    // exactly the file an apply would replace. /bin/sleep copied under the
-    // test root keeps the fake PATH fake while giving the exe a real inode.
+    // exactly the file an apply would replace. A writeSleeper copy under
+    // the test root keeps the fake PATH fake while giving the exe a real
+    // inode.
     // The PATH entry is a symlink to it, as installer stubs and fnm links
     // are: /proc reports the resolved binary, and the match must still hold.
-    copyFileSync("/usr/bin/sleep", join(fake.root, "codex-real"));
-    chmodSync(join(fake.root, "codex-real"), 0o755);
+    writeSleeper(join(fake.root, "codex-real"));
     rmSync(join(fake.binDir, "codex"));
     symlinkSync(join(fake.root, "codex-real"), join(fake.binDir, "codex"));
-    const sleeper = spawn(join(fake.binDir, "codex"), ["10"], {
+    const sleeper = spawn(join(fake.binDir, "codex"), SLEEPER_ARGS, {
       stdio: "ignore",
     });
     try {
